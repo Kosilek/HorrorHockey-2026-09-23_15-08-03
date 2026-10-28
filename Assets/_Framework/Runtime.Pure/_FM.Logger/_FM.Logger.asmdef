@@ -1,0 +1,14 @@
+{
+    "name": "_FM.Logger",
+    "rootNamespace": "_FM.Logger",
+    "references": ["FM.General"],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

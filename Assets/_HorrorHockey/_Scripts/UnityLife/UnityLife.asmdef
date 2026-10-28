@@ -1,0 +1,17 @@
+{
+    "name": "UnityLife",
+    "rootNamespace": "",
+    "references": [
+        "GUID:80cd944761d134044bb8710524487548",
+        "GUID:aba4cc3f8ecbb9f4dbd3e75736326b23"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
