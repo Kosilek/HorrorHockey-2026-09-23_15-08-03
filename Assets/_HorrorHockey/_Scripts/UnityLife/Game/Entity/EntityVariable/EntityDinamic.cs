@@ -1,12 +1,12 @@
 using Shared.Core.Contracts;
 using UnityEngine;
 using UnityLife.Game.Entity.Navigations;
-using FMVector3 = FM.Mathematics.DataTypes.Vector3;
+using FMVector2 = FM.Mathematics.DataTypes.Vector2;
 
 namespace UnityLife.Game.Entity
 {
     [RequireComponent(typeof(AgentAI))]
-    public class EntityDinamic : Entity, IEntityMuvemet
+    public class EntityDinamic : Entity, IEntityMovemet
     {
         #region Component
         protected AgentAI _agentAI;
@@ -21,9 +21,11 @@ namespace UnityLife.Game.Entity
             _agentAI.Initialize(_animator);
         }
 
-        public void StartMovement(FMVector3[] vector3s)
+        public void StartMovement(FMVector2[] points)
         {
-            _agentAI.StartMovement(vector3s);
+            if (_agentAI == null)
+                Initialize();
+            _agentAI.StartMovement(points);
         }
         #endregion
     }

@@ -1,0 +1,92 @@
+{
+  "LeftRoute": [
+    {
+      "NameObject": "Left_1",
+      "Position": {
+        "X": 101.17,
+        "Y": 66.84
+      }
+    },
+    {
+      "NameObject": "Left_2",
+      "Position": {
+        "X": 79.38,
+        "Y": -56.82
+      }
+    },
+    {
+      "NameObject": "Left_3",
+      "Position": {
+        "X": 70.28,
+        "Y": -74.02
+      }
+    },
+    {
+      "NameObject": "Left_4",
+      "Position": {
+        "X": 52.38,
+        "Y": -81.42
+      }
+    },
+    {
+      "NameObject": "Left_5",
+      "Position": {
+        "X": -66.86,
+        "Y": -100.89
+      }
+    }
+  ],
+  "MiddleRoute": [
+    {
+      "NameObject": "Middle_1",
+      "Position": {
+        "X": 91.24,
+        "Y": 91.54
+      }
+    },
+    {
+      "NameObject": "Middle_2",
+      "Position": {
+        "X": -91.67,
+        "Y": -91.72
+      }
+    }
+  ],
+  "RightRoute": [
+    {
+      "NameObject": "Right_1",
+      "Position": {
+        "X": 66.92,
+        "Y": 101.06
+      }
+    },
+    {
+      "NameObject": "Right_2",
+      "Position": {
+        "X": -56.50,
+        "Y": 79.00
+      }
+    },
+    {
+      "NameObject": "Right_3",
+      "Position": {
+        "X": -68.10,
+        "Y": 71.70
+      }
+    },
+    {
+      "NameObject": "Right_4",
+      "Position": {
+        "X": -76.60,
+        "Y": 59.90
+      }
+    },
+    {
+      "NameObject": "Right_5",
+      "Position": {
+        "X": -100.95,
+        "Y": -66.80
+      }
+    }
+  ]
+}

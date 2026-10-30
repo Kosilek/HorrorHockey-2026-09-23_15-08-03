@@ -22,7 +22,7 @@ namespace _FM.DI
         /// <param name="resolver">{RU} Резолвер для получения зависимостей<para>{EN} Resolver to get dependencies</para></param>
         public UnityInjectService(params IResolver[] resolvers)
         {
-            foreach(var resolver in resolvers)
+            foreach (var resolver in resolvers)
             {
                 _resolvers.Add(resolver ?? throw new ArgumentNullException(nameof(resolvers)));
             }

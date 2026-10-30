@@ -2,7 +2,7 @@ using Domain.Game.Core.Entity;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityLife.Game.Entity.Animations;
-using FMVector3 = FM.Mathematics.DataTypes.Vector3;
+using FMVector2 = FM.Mathematics.DataTypes.Vector2;
 
 namespace UnityLife.Game.Entity.Navigations
 {
@@ -34,7 +34,8 @@ namespace UnityLife.Game.Entity.Navigations
         private const string LeftParam = "Left";
         private const string RightParam = "Right";
 
-        private Vector3[] _route;
+        private Vector2[] _route;
+        private float _groundHeight;
         private float[] _routeDistance;
         private float _pathLength;
         private float _pathProgress;
@@ -93,7 +94,7 @@ namespace UnityLife.Game.Entity.Navigations
         /// <para>{EN} March from where the body already stands through the points. Call from the inspector button.</para>
         /// {RU} Марш от текущей позиции тела через список точек. Вызывай с кнопки в инспекторе.
         /// </summary>
-        public void StartMovement(FMVector3[] vector3s)
+        public void StartMovement(FMVector2[] points)
         {
             _pathProgress = 0f;
             _currentSpeed = 0f;
@@ -103,8 +104,9 @@ namespace UnityLife.Game.Entity.Navigations
             _latchedTurn = -1;
             _alignLatched = false;
             _alignSide = 0;
+            _groundHeight = transform.position.y;
 
-            if (!TryBuildRoute(vector3s))
+            if (!TryBuildRoute(points))
             {
                 _isMoving = false;
                 ApplyAnim();
@@ -284,19 +286,19 @@ namespace UnityLife.Game.Entity.Navigations
             _turnSide = _alignSide;
         }
 
-        private bool TryBuildRoute(FMVector3[] fMVector3)
+        private bool TryBuildRoute(FMVector2[] points)
         {
-            if (!NavigationAI.TryBuildCurve(WithBodyStart(fMVector3), out Vector3[] curve))
+            if (!NavigationAI.TryBuildCurve(WithBodyStart(points), out Vector2[] curve))
                 return false;
 
             // Сэмпл Безье может на долю миллиметра уехать от контрола. Первая точка — тело, иначе первый Tick сдвинет объект.
-            curve[0] = transform.position;
+            curve[0] = new Vector2(transform.position.x, transform.position.z);
             _route = curve;
             _routeDistance = new float[curve.Length];
             float length = 0f;
             for (int i = 1; i < curve.Length; i++)
             {
-                length += Vector3.Distance(curve[i - 1], curve[i]);
+                length += Vector2.Distance(curve[i - 1], curve[i]);
                 _routeDistance[i] = length;
             }
 
@@ -308,22 +310,21 @@ namespace UnityLife.Game.Entity.Navigations
             return true;
         }
 
-        private FMVector3[] WithBodyStart(FMVector3[] controls)
+        private FMVector2[] WithBodyStart(FMVector2[] controls)
         {
             if (controls == null || controls.Length == 0)
                 return controls;
 
             Vector3 body = transform.position;
-            FMVector3 first = controls[0];
+            FMVector2 first = controls[0];
             float dx = body.x - first.X;
-            float dy = body.y - first.Y;
-            float dz = body.z - first.Z;
+            float dz = body.z - first.Y;
             // Уже на первой точке. Второй такой же контрол даёт Безье нулевой отрезок.
-            if (dx * dx + dy * dy + dz * dz <= 1e-6f)
+            if (dx * dx + dz * dz <= 1e-6f)
                 return controls;
 
-            var withStart = new FMVector3[controls.Length + 1];
-            withStart[0] = new FMVector3(body.x, body.y, body.z);
+            var withStart = new FMVector2[controls.Length + 1];
+            withStart[0] = new FMVector2(body.x, body.z);
             for (int i = 0; i < controls.Length; i++)
                 withStart[i + 1] = controls[i];
 
@@ -425,17 +426,16 @@ namespace UnityLife.Game.Entity.Navigations
 
         private float TangentYaw(float distance)
         {
-            if (!TrySample(distance, out _, out Vector3 tangent))
+            if (!TrySample(distance, out _, out Vector2 tangent))
                 return transform.eulerAngles.y;
 
-            tangent.y = 0f;
             if (tangent.sqrMagnitude < 1e-8f)
                 return transform.eulerAngles.y;
 
-            return Mathf.Atan2(tangent.x, tangent.z) * Mathf.Rad2Deg;
+            return Mathf.Atan2(tangent.x, tangent.y) * Mathf.Rad2Deg;
         }
 
-        private bool TrySample(float distance, out Vector3 position, out Vector3 tangent)
+        private bool TrySample(float distance, out Vector2 position, out Vector2 tangent)
         {
             position = default;
             tangent = default;
@@ -463,19 +463,17 @@ namespace UnityLife.Game.Entity.Navigations
 
             float span = _routeDistance[index] - _routeDistance[index - 1];
             float along = span > 1e-5f ? (distance - _routeDistance[index - 1]) / span : 0f;
-            position = Vector3.Lerp(_route[index - 1], _route[index], along);
+            position = Vector2.Lerp(_route[index - 1], _route[index], along);
             tangent = _route[index] - _route[index - 1];
             return true;
         }
 
         private float SignedYawAlongPath()
         {
-            if (!TrySample(_pathProgress, out _, out Vector3 tangent))
+            if (!TrySample(_pathProgress, out _, out Vector2 tangent))
                 return 0f;
 
-            Vector3 flat = tangent;
-            flat.y = 0f;
-            if (flat.sqrMagnitude < 1e-8f)
+            if (tangent.sqrMagnitude < 1e-8f)
                 return 0f;
 
             Vector3 forward = transform.forward;
@@ -483,7 +481,7 @@ namespace UnityLife.Game.Entity.Navigations
             if (forward.sqrMagnitude < 1e-8f)
                 return 0f;
 
-            return Vector3.SignedAngle(forward, flat, Vector3.up);
+            return Vector3.SignedAngle(forward, new Vector3(tangent.x, 0f, tangent.y), Vector3.up);
         }
 
         private void ApplyAnim()
@@ -562,19 +560,17 @@ namespace UnityLife.Game.Entity.Navigations
 
         private void ApplyPose(float deltaTime)
         {
-            if (!TrySample(_pathProgress, out Vector3 position, out Vector3 tangent))
+            if (!TrySample(_pathProgress, out Vector2 position, out Vector2 tangent))
                 return;
 
-            transform.position = position;
+            transform.position = Ground(position);
             if (!_faceMoveDirection)
                 return;
 
-            Vector3 flat = tangent;
-            flat.y = 0f;
-            if (flat.sqrMagnitude < 1e-8f)
+            if (tangent.sqrMagnitude < 1e-8f)
                 return;
 
-            Quaternion look = Quaternion.LookRotation(flat.normalized, Vector3.up);
+            Quaternion look = Quaternion.LookRotation(new Vector3(tangent.x, 0f, tangent.y).normalized, Vector3.up);
             if (_turnSpeed <= 0f)
             {
                 transform.rotation = look;
@@ -587,7 +583,7 @@ namespace UnityLife.Game.Entity.Navigations
         private void Arrive()
         {
             if (_route != null && _route.Length > 0)
-                transform.position = _route[_route.Length - 1];
+                transform.position = Ground(_route[_route.Length - 1]);
             _pathProgress = _pathLength;
             _currentSpeed = 0f;
             _isMoving = false;
@@ -642,6 +638,11 @@ namespace UnityLife.Game.Entity.Navigations
         //    for (int i = 1; i < curve.Length; i++)
         //        Gizmos.DrawLine(curve[i - 1], curve[i]);
         //}
+
+        private Vector3 Ground(Vector2 point)
+        {
+            return new Vector3(point.x, _groundHeight, point.y);
+        }
 
         private struct PathTurn
         {

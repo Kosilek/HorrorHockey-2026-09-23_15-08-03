@@ -53,6 +53,9 @@ namespace _FM.DI
 
             foreach (var reg in diManagerOptions.ExternalRegistrations)
                 reg(this, diManagerOptions);
+
+            // Регистрации уже в root. Match и menu пока пустые, сервисы туда не пишутся.
+            UnityInjectService.Instance = new UnityInjectService(_rootContext);
         }
 
         public void RegisterSingleton<TInterface, TImplementation>() where TImplementation : TInterface =>

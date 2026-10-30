@@ -51,10 +51,11 @@ namespace FM.General.Core
                             _bootstrap.Add(instance);
                         }
                     }
+                    Debug.Log("Load Succes");
                 }
                 catch (ReflectionTypeLoadException)
                 {
-                    // Сборка ещё не полностью загружена
+                    Debug.LogWarning("Load Failed");
                 }
                 catch (Exception ex)
                 {
