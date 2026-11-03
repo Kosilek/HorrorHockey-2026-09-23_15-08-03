@@ -1,0 +1,16 @@
+{
+    "name": "Server.Shared",
+    "rootNamespace": "",
+    "references": [
+        "GUID:4ea78c01a058c3849bee4e6e8775108d"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

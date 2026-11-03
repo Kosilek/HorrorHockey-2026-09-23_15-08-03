@@ -1,34 +1,31 @@
+using ContractsServer.Command;
 using ContractsServer.Core.Interfaces;
-using ContractsServer.Service.Navigation;
+using Shared.Data.Provider;
 using Shared.Core.Contracts;
+using Shared.Core.Contracts.Domain;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace Domain.Game.Services
 {
     public partial class RuntimeService : IRuntimeService
     {
-        private readonly IEntityMovemet entityMovemet;
         private readonly INavigationProviderService _navigationProviderService;
+        private readonly IObjectLifeCicleService _objectLifeCicleService;
+        private readonly ProviderService _providerService;
 
-        public RuntimeService(INavigationProviderService navigationProviderService)
+        private readonly Dictionary<ushort, IEntityMovemet> _entityMovements;
+
+        public RuntimeService(
+            INavigationProviderService navigationProviderService,
+            IObjectLifeCicleService objectLifeCicleService,
+            ProviderService providerService)
         {
-            var objects = Object.FindObjectsByType<MonoBehaviour>()
-                .OfType<IEntityMovemet>()
-                .ToArray();
-            Debug.Log("qqq");
             _navigationProviderService = navigationProviderService;
-            Debug.Log("qqq 2");
-            entityMovemet = objects[0];
-            Debug.Log("qqq 3");
-            var path = _navigationProviderService.BasicRouteData.LeftRoute;
-            Debug.Log("qqq 4");
-            var points = path.Select(x => x.Position).ToArray();
-            Debug.Log($"qqq 5 {entityMovemet}");
-
-            entityMovemet.StartMovement(points);
-            Debug.Log("qqq 6");
+            _objectLifeCicleService = objectLifeCicleService;
+            _providerService = providerService;
+            _entityMovements = new();
         }
     }
 }

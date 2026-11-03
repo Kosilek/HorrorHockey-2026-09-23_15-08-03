@@ -25,16 +25,12 @@ namespace UnityLife.Game.Entity.Animations
         }
 
         #region Inititalize
-        private void Inititalize()
+        public void Inititalize(Animator animator, AgentAI agentAI)
         {
-            InititalizeComponent();
+            _animator = animator;
+            _agentAI = agentAI;
         }
 
-        private void InititalizeComponent()
-        {
-            _animator = GetComponent<Animator>();
-            _agentAI = GetComponent<AgentAI>();
-        }
         #endregion end Inititalize
 
         private void OnAnimatorIK(int layerIndex)

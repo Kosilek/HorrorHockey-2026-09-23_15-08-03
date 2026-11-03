@@ -1,0 +1,22 @@
+{
+    "name": "Server.Service",
+    "rootNamespace": "",
+    "references": [
+        "GUID:7adbbd8c72955c24ba8993212d2deab1",
+        "GUID:335e514825c8a594fb064b373ba8c428",
+        "GUID:4ea78c01a058c3849bee4e6e8775108d",
+        "GUID:73ea5e286538f4c41b2853ab58e6b46e",
+        "GUID:db37fa17c64aba24facc2f27455fbe5e",
+        "GUID:151aac2c43f66274a882a24d0df08e7f",
+        "GUID:ba326943a1275c24896aee2e7e3840a7"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

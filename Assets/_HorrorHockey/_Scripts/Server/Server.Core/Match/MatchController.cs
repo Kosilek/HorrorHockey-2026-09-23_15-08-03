@@ -1,0 +1,58 @@
+using ContractsServer.Data;
+using ContractsServer.Service.Navigation;
+using Server.Core.Entity;
+using Server.Core.Interfaces;
+using Server.ObjectPooling.Service;
+using Server.Shared.Configurations;
+using Server.Shared.Core.Contracts.WebSocket;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+
+namespace Server.Core.Match
+{
+    public partial class MatchController
+    {
+        #region Components
+        private readonly INavigationService _navigationService;
+        private readonly IWebSocketService _webSocket;
+
+        private readonly IObjectPoolingService<UnitRuntime> _objectPoolingService;
+        #endregion
+
+        #region Fields
+        private readonly float _deltaTime;
+        #endregion
+
+        #region Timer
+        private readonly Stopwatch _matchTimer;
+        private float _matchTime => (float)_matchTimer.Elapsed.TotalSeconds;
+        #endregion
+
+        #region Units
+        private readonly Dictionary<int, UnitRuntime> _units;
+        #endregion
+
+        /// <summary>
+        /// <para>{EN} Calls from other threads. Run at the start of Tick on the match thread.</para>
+        /// {RU} Вызовы из других потоков. Выполняются в начале Tick в потоке матча.
+        /// </summary>
+        private readonly ConcurrentQueue<Action> _commands;
+
+        public MatchController(
+            INavigationService navigationService,
+            ObjectPoolingConfiguration configPooling,
+            IWebSocketService webSocketService)
+        {
+            _navigationService = navigationService;
+            _objectPoolingService = new ObjectPoolingService<UnitRuntime>(configPooling);
+            _deltaTime = GameConstants.DeltaTime;
+            _webSocket = webSocketService;
+
+            _units = new();
+            _commands = new();
+            _matchTimer = new();
+        }
+    }
+}

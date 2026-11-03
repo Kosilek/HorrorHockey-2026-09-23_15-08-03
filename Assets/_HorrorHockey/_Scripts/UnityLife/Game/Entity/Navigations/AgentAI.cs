@@ -1,3 +1,5 @@
+using ContractsServer.Data;
+using ContractsServer.Service.Navigation;
 using Domain.Game.Core.Entity;
 using System.Collections.Generic;
 using UnityEngine;
@@ -7,16 +9,15 @@ using FMVector2 = FM.Mathematics.DataTypes.Vector2;
 namespace UnityLife.Game.Entity.Navigations
 {
     [DisallowMultipleComponent]
-    [RequireComponent(typeof(EntityBodyTilt))]
     [AddComponentMenu("Entity/EntityAI")]
     public class AgentAI : MonoBehaviour
     {
         //[SerializeField] private Transform[] _points;
         [Tooltip("Плотность curve на каждом отрезке. 0.05 — как Bezier Step у FlatMap. Меньше — плавнее поворот.")]
-        [SerializeField, Min(0.01f)] private float _curveStep = 0.05f;
-        [SerializeField] private float _maxSpeed = 5f;
-        [SerializeField, Min(0f)] private float _accelTime = 1f;
-        [SerializeField, Min(0f)] private float _brakeTime = 1f;
+        [SerializeField, Min(0.01f)] private float _curveStep = GameConstants.CurveStep;
+        [SerializeField] private float _maxSpeed = GameConstants.MaxSpeed;
+        [SerializeField, Min(0f)] private float _accelTime = GameConstants.AccelTime;
+        [SerializeField, Min(0f)] private float _brakeTime = GameConstants.BrakeTime;
         [SerializeField] private bool _faceMoveDirection = true;
         [SerializeField] private float _turnSpeed = 720f;
         [Tooltip("Left и Right, если весь поворот больше этого угла и корпус ещё крутится. Иначе Move.")]
@@ -34,14 +35,9 @@ namespace UnityLife.Game.Entity.Navigations
         private const string LeftParam = "Left";
         private const string RightParam = "Right";
 
-        private Vector2[] _route;
+        private readonly UnitRouteMotion _motion = new();
         private float _groundHeight;
-        private float[] _routeDistance;
-        private float _pathLength;
-        private float _pathProgress;
-        private float _currentSpeed;
         private float _currentTilt;
-        private bool _isMoving;
         private bool _isStopping;
         private int _turnSide;
         private PathTurn[] _turns = System.Array.Empty<PathTurn>();
@@ -59,13 +55,13 @@ namespace UnityLife.Game.Entity.Navigations
         /// <para>{EN} True while the march is running.</para>
         /// {RU} true, пока марш идёт.
         /// </summary>
-        public bool IsMoving => _isMoving;
+        public bool IsMoving => _motion.IsMoving;
 
         /// <summary>
         /// <para>{EN} Current speed in meters per second.</para>
         /// {RU} Текущая speed, м/с.
         /// </summary>
-        public float CurrentSpeed => _currentSpeed;
+        public float CurrentSpeed => _motion.CurrentSpeed;
 
         /// <summary>
         /// <para>{EN} Body roll in degrees. Positive leans into a right turn.</para>
@@ -77,17 +73,18 @@ namespace UnityLife.Game.Entity.Navigations
         /// <para>{EN} Distance already traveled along the path.</para>
         /// {RU} Пройденная длина пути.
         /// </summary>
-        public float PathProgress => _pathProgress;
+        public float PathProgress => _motion.PathProgress;
 
         /// <summary>
         /// <para>{EN} Full path length.</para>
         /// {RU} Полная длина пути.
         /// </summary>
-        public float PathLength => _pathLength;
+        public float PathLength => _motion.PathLength;
 
         public void Initialize(Animator animator)
         {
             _animator = animator;
+            _motion.Initialize(_maxSpeed, _accelTime, _brakeTime, new FMVector2(transform.position.x, transform.position.z));
         }
 
         /// <summary>
@@ -96,8 +93,21 @@ namespace UnityLife.Game.Entity.Navigations
         /// </summary>
         public void StartMovement(FMVector2[] points)
         {
-            _pathProgress = 0f;
-            _currentSpeed = 0f;
+            Begin(new FMVector2(transform.position.x, transform.position.z), points);
+        }
+
+        /// <summary>
+        /// <para>{EN} Server route. The body snaps to start so the curve matches the server one exactly.</para>
+        /// {RU} Маршрут с сервера. Тело встаёт в start, чтобы кривая точно совпала с серверной.
+        /// </summary>
+        public void StartMovement(FMVector2 start, FMVector2[] controls)
+        {
+            transform.position = new Vector3(start.X, transform.position.y, start.Y);
+            Begin(start, controls);
+        }
+
+        private void Begin(FMVector2 start, FMVector2[] points)
+        {
             _currentTilt = 0f;
             _isStopping = false;
             _turnSide = 0;
@@ -106,14 +116,13 @@ namespace UnityLife.Game.Entity.Navigations
             _alignSide = 0;
             _groundHeight = transform.position.y;
 
-            if (!TryBuildRoute(points))
+            if (!_motion.TryStart(start, points))
             {
-                _isMoving = false;
                 ApplyAnim();
                 return;
             }
 
-            _isMoving = true;
+            BuildTurns();
             UpdateTurn();
             ApplyAnim();
         }
@@ -124,7 +133,7 @@ namespace UnityLife.Game.Entity.Navigations
             if (deltaTime <= 0f)
                 return;
 
-            if (_isMoving)
+            if (_motion.IsMoving)
                 Tick(deltaTime);
 
             UpdateTilt(deltaTime);
@@ -135,48 +144,28 @@ namespace UnityLife.Game.Entity.Navigations
             if (deltaTime <= 0f)
                 return;
 
-            float remaining = _pathLength - _pathProgress;
-            if (remaining <= 1e-4f)
-            {
-                Arrive();
-                return;
-            }
-
-            if (!_isStopping && IsBrakeZone(remaining, _currentSpeed))
+            float remaining = PathLength - PathProgress;
+            bool alreadyThere = remaining <= 1e-4f;
+            if (!alreadyThere && !_isStopping && IsBrakeZone(remaining, CurrentSpeed))
                 _isStopping = true;
 
-            _currentSpeed = StepSpeed(remaining, deltaTime);
-
-            float moveDist = _currentSpeed * deltaTime;
-            if (moveDist >= remaining)
+            _motion.Tick(deltaTime);
+            if (alreadyThere)
             {
-                _pathProgress = _pathLength;
-                _currentSpeed = 0f;
-                ApplyPose(deltaTime);
-                UpdateTurn();
-                Arrive();
+                SnapToMotion();
+                FinishMove();
                 return;
             }
 
-            _pathProgress += moveDist;
             ApplyPose(deltaTime);
             UpdateTurn();
+            if (!_motion.IsMoving)
+            {
+                FinishMove();
+                return;
+            }
+
             ApplyAnim();
-        }
-
-        private float StepSpeed(float remaining, float deltaTime)
-        {
-            float maxSpeed = Mathf.Max(0f, _maxSpeed);
-            float accelRate = _accelTime > 1e-4f ? maxSpeed / _accelTime : float.PositiveInfinity;
-            float brakeRate = _brakeTime > 1e-4f ? maxSpeed / _brakeTime : float.PositiveInfinity;
-
-            // v = sqrt(2 * a * s) — потолок, с которого ещё успеваем остановиться за Brake Time.
-            float brakeCap = float.IsPositiveInfinity(brakeRate)
-                ? maxSpeed
-                : Mathf.Sqrt(2f * brakeRate * Mathf.Max(0f, remaining));
-            float target = Mathf.Min(maxSpeed, brakeCap);
-            float rate = target + 1e-4f >= _currentSpeed ? accelRate : brakeRate;
-            return Mathf.MoveTowards(_currentSpeed, target, rate * deltaTime);
         }
 
         private void UpdateTilt(float deltaTime)
@@ -184,7 +173,7 @@ namespace UnityLife.Game.Entity.Navigations
             // k = ω / v, поэтому v²·k = v·ω. Плюс — поворот вправо.
             // ω с path, а не с кадра: на прямом куске ломаной yaw корпуса стоит, и кадр давал бы 0.
             float yawRate = PathYawRate();
-            float lateralAcceleration = _currentSpeed * yawRate;
+            float lateralAcceleration = CurrentSpeed * yawRate;
             float targetTilt = Mathf.Atan2(lateralAcceleration, Physics.gravity.magnitude) * Mathf.Rad2Deg * _tiltStrength;
             targetTilt = Mathf.Clamp(targetTilt, -_maxTilt, _maxTilt);
             _currentTilt = Mathf.Lerp(_currentTilt, targetTilt, _tiltSmooth * deltaTime);
@@ -192,26 +181,26 @@ namespace UnityLife.Game.Entity.Navigations
 
         private float PathYawRate()
         {
-            if (_currentSpeed <= 1e-4f || _route == null || _pathLength <= 1e-3f)
+            if (CurrentSpeed <= 1e-4f || !_motion.HasRoute || PathLength <= 1e-3f)
                 return 0f;
 
-            int index = FindTurn(_pathProgress);
+            int index = FindTurn(PathProgress);
             if (index >= 0)
             {
                 PathTurn turn = _turns[index];
                 float length = Mathf.Max(0.05f, turn.End - turn.Start);
-                return turn.SignedAngle * Mathf.Deg2Rad / length * _currentSpeed;
+                return turn.SignedAngle * Mathf.Deg2Rad / length * CurrentSpeed;
             }
 
             const float Window = 2f;
-            float from = Mathf.Clamp(_pathProgress - Window * 0.5f, 0f, _pathLength);
-            float to = Mathf.Clamp(_pathProgress + Window * 0.5f, 0f, _pathLength);
+            float from = Mathf.Clamp(PathProgress - Window * 0.5f, 0f, PathLength);
+            float to = Mathf.Clamp(PathProgress + Window * 0.5f, 0f, PathLength);
             float span = to - from;
             if (span < 0.05f)
                 return 0f;
 
             float deltaYaw = Mathf.DeltaAngle(TangentYaw(from), TangentYaw(to));
-            return deltaYaw * Mathf.Deg2Rad / span * _currentSpeed;
+            return deltaYaw * Mathf.Deg2Rad / span * CurrentSpeed;
         }
 
         private bool IsBrakeZone(float remaining, float speed)
@@ -239,7 +228,7 @@ namespace UnityLife.Game.Entity.Navigations
             }
 
             float bodyYaw = transform.eulerAngles.y;
-            int current = FindTurn(_pathProgress);
+            int current = FindTurn(PathProgress);
             if (current < 0 && _latchedTurn >= 0 && _latchedTurn < _turns.Length)
             {
                 PathTurn latched = _turns[_latchedTurn];
@@ -286,55 +275,10 @@ namespace UnityLife.Game.Entity.Navigations
             _turnSide = _alignSide;
         }
 
-        private bool TryBuildRoute(FMVector2[] points)
-        {
-            if (!NavigationAI.TryBuildCurve(WithBodyStart(points), out Vector2[] curve))
-                return false;
-
-            // Сэмпл Безье может на долю миллиметра уехать от контрола. Первая точка — тело, иначе первый Tick сдвинет объект.
-            curve[0] = new Vector2(transform.position.x, transform.position.z);
-            _route = curve;
-            _routeDistance = new float[curve.Length];
-            float length = 0f;
-            for (int i = 1; i < curve.Length; i++)
-            {
-                length += Vector2.Distance(curve[i - 1], curve[i]);
-                _routeDistance[i] = length;
-            }
-
-            _pathLength = length;
-            if (length < 1e-4f)
-                return false;
-
-            BuildTurns();
-            return true;
-        }
-
-        private FMVector2[] WithBodyStart(FMVector2[] controls)
-        {
-            if (controls == null || controls.Length == 0)
-                return controls;
-
-            Vector3 body = transform.position;
-            FMVector2 first = controls[0];
-            float dx = body.x - first.X;
-            float dz = body.z - first.Y;
-            // Уже на первой точке. Второй такой же контрол даёт Безье нулевой отрезок.
-            if (dx * dx + dz * dz <= 1e-6f)
-                return controls;
-
-            var withStart = new FMVector2[controls.Length + 1];
-            withStart[0] = new FMVector2(body.x, body.z);
-            for (int i = 0; i < controls.Length; i++)
-                withStart[i + 1] = controls[i];
-
-            return withStart;
-        }
-
         private void BuildTurns()
         {
             _turns = System.Array.Empty<PathTurn>();
-            if (_route == null || _route.Length < 2)
+            if (!_motion.HasRoute)
                 return;
 
             const float Step = 0.25f;
@@ -349,9 +293,9 @@ namespace UnityLife.Game.Entity.Navigations
             float calm = 0f;
             float traveled = 0f;
 
-            while (traveled < _pathLength - 1e-4f)
+            while (traveled < PathLength - 1e-4f)
             {
-                float next = Mathf.Min(traveled + Step, _pathLength);
+                float next = Mathf.Min(traveled + Step, PathLength);
                 float delta = Mathf.DeltaAngle(prevYaw, TangentYaw(next));
                 float segment = next - traveled;
                 prevYaw = TangentYaw(next);
@@ -391,7 +335,7 @@ namespace UnityLife.Game.Entity.Navigations
             }
 
             if (open)
-                AddTurn(turns, start, _pathLength, accum);
+                AddTurn(turns, start, PathLength, accum);
 
             _turns = turns.ToArray();
         }
@@ -439,38 +383,17 @@ namespace UnityLife.Game.Entity.Navigations
         {
             position = default;
             tangent = default;
-            if (_route == null || _routeDistance == null || _route.Length < 2)
+            if (!_motion.TrySample(distance, out FMVector2 sampledPosition, out FMVector2 sampledTangent))
                 return false;
 
-            int last = _route.Length - 1;
-            if (distance <= 0f)
-            {
-                position = _route[0];
-                tangent = _route[1] - _route[0];
-                return true;
-            }
-
-            if (distance >= _routeDistance[last])
-            {
-                position = _route[last];
-                tangent = _route[last] - _route[last - 1];
-                return true;
-            }
-
-            int index = 1;
-            while (index < last && _routeDistance[index] < distance)
-                index++;
-
-            float span = _routeDistance[index] - _routeDistance[index - 1];
-            float along = span > 1e-5f ? (distance - _routeDistance[index - 1]) / span : 0f;
-            position = Vector2.Lerp(_route[index - 1], _route[index], along);
-            tangent = _route[index] - _route[index - 1];
+            position = new Vector2(sampledPosition.X, sampledPosition.Y);
+            tangent = new Vector2(sampledTangent.X, sampledTangent.Y);
             return true;
         }
 
         private float SignedYawAlongPath()
         {
-            if (!TrySample(_pathProgress, out _, out Vector2 tangent))
+            if (!TrySample(PathProgress, out _, out Vector2 tangent))
                 return 0f;
 
             if (tangent.sqrMagnitude < 1e-8f)
@@ -487,9 +410,9 @@ namespace UnityLife.Game.Entity.Navigations
         private void ApplyAnim()
         {
             EnsureAnim();
-            bool turn = _isMoving && !_isStopping && _turnSide != 0;
-            bool stop = _isMoving && _isStopping;
-            bool move = _isMoving && !_isStopping && !turn;
+            bool turn = IsMoving && !_isStopping && _turnSide != 0;
+            bool stop = _isStopping;
+            bool move = IsMoving && !_isStopping && !turn;
             SetAnim(ref _moveAnim, move);
             SetAnim(ref _stopAnim, stop);
             SetAnim(ref _leftAnim, turn && _turnSide < 0);
@@ -550,7 +473,7 @@ namespace UnityLife.Game.Entity.Navigations
 
         private void OnDisable()
         {
-            _isMoving = false;
+            _motion.Stop();
             _isStopping = false;
             _turnSide = 0;
             _latchedTurn = -1;
@@ -560,7 +483,7 @@ namespace UnityLife.Game.Entity.Navigations
 
         private void ApplyPose(float deltaTime)
         {
-            if (!TrySample(_pathProgress, out Vector2 position, out Vector2 tangent))
+            if (!TrySample(PathProgress, out Vector2 position, out Vector2 tangent))
                 return;
 
             transform.position = Ground(position);
@@ -580,14 +503,18 @@ namespace UnityLife.Game.Entity.Navigations
             transform.rotation = Quaternion.RotateTowards(transform.rotation, look, _turnSpeed * deltaTime);
         }
 
-        private void Arrive()
+        private void SnapToMotion()
         {
-            if (_route != null && _route.Length > 0)
-                transform.position = Ground(_route[_route.Length - 1]);
-            _pathProgress = _pathLength;
-            _currentSpeed = 0f;
-            _isMoving = false;
-            _isStopping = false;
+            if (!_motion.HasRoute)
+                return;
+
+            transform.position = Ground(new Vector2(_motion.Position.X, _motion.Position.Y));
+        }
+
+        private void FinishMove()
+        {
+            // Stop не сбрасываем на финише: Animator мог ещё не успеть перейти по триггеру.
+            _isStopping = true;
             _turnSide = 0;
             _latchedTurn = -1;
             _alignLatched = false;

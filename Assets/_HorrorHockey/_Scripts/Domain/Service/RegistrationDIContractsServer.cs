@@ -1,4 +1,5 @@
 using ContractsServer.Core.Interfaces;
+using ContractsServer.Data.Navigation;
 using ContractsServer.Service.Navigation;
 using FM.General.Core.Interfaces.Contracts;
 

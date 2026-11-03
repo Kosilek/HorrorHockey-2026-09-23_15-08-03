@@ -1,0 +1,18 @@
+{
+    "name": "Server.WebSocket",
+    "rootNamespace": "",
+    "references": [
+        "GUID:335e514825c8a594fb064b373ba8c428",
+        "GUID:4ea78c01a058c3849bee4e6e8775108d",
+        "GUID:80cd944761d134044bb8710524487548"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
