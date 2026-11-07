@@ -1,6 +1,6 @@
 using ContractsServer.Core.Enum;
 
-namespace Server.Shared.Data
+namespace Server.Core.Data
 {
     public struct UnitFieldsPlayer
     {

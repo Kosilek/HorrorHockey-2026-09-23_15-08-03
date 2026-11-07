@@ -1,6 +1,7 @@
 using _FM.DI;
 using ContractsServer.Command;
 using ContractsServer.Core.Enum;
+using FM.Mathematics.DataTypes;
 using Server.Shared.Core.Contracts.WebSocket;
 using Shared.Core.Contracts.Server;
 using System.Collections;
@@ -38,27 +39,27 @@ namespace UnityLife.Service
             }
             if (Keyboard.current != null && Keyboard.current.digit1Key.wasPressedThisFrame)
             {
-                _networkService.Send(CommandWs.SpawnUnit, (Team.Blue, PlayerIndex.BlueLeft));
+                _networkService.Send(CommandWs.SpawnUnit, (new Byte2(0, 0), Team.Blue, PlayerIndex.BlueLeft));
             }
             if (Keyboard.current != null && Keyboard.current.digit2Key.wasPressedThisFrame)
             {
-                _networkService.Send(CommandWs.SpawnUnit, (Team.Blue, PlayerIndex.BlueMiddle));
+                _networkService.Send(CommandWs.SpawnUnit, (new Byte2(0, 0), Team.Blue, PlayerIndex.BlueMiddle));
             }
             if (Keyboard.current != null && Keyboard.current.digit3Key.wasPressedThisFrame)
             {
-                _networkService.Send(CommandWs.SpawnUnit, (Team.Blue, PlayerIndex.BlueRight));
+                _networkService.Send(CommandWs.SpawnUnit, (new Byte2(0, 0), Team.Blue, PlayerIndex.BlueRight));
             }
             if (Keyboard.current != null && Keyboard.current.digit4Key.wasPressedThisFrame)
             {
-                _networkService.Send(CommandWs.SpawnUnit, (Team.Red, PlayerIndex.RedLeft));
+                _networkService.Send(CommandWs.SpawnUnit, (new Byte2(0, 0), Team.Red, PlayerIndex.RedLeft));
             }
             if (Keyboard.current != null && Keyboard.current.digit5Key.wasPressedThisFrame)
             {
-                _networkService.Send(CommandWs.SpawnUnit, (Team.Red, PlayerIndex.RedMiddle));
+                _networkService.Send(CommandWs.SpawnUnit, (new Byte2(0, 0), Team.Red, PlayerIndex.RedMiddle));
             }
             if (Keyboard.current != null && Keyboard.current.digit6Key.wasPressedThisFrame)
             {
-                _networkService.Send(CommandWs.SpawnUnit, (Team.Red, PlayerIndex.RedRight));
+                _networkService.Send(CommandWs.SpawnUnit, (new Byte2(0, 0), Team.Red, PlayerIndex.RedRight));
             }
         }
     }

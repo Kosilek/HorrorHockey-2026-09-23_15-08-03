@@ -1,10 +1,11 @@
 using ContractsServer.Core.Enum;
+using FM.Mathematics.DataTypes;
 using System;
 
 namespace Server.Shared.Core.Contracts
 {
     public interface IMatchServiceMatch
     {
-        void SpawnUnit(Team team, PlayerIndex playerIndex);
+        void SpawnUnit(Byte2 typeUnit, Team team, PlayerIndex playerIndex);
     }
 }

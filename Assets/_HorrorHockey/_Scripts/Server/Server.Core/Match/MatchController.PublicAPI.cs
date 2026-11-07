@@ -1,21 +1,22 @@
 using ContractsServer.Command;
 using ContractsServer.Core.Enum;
+using ContractsServer.Data.Entity;
 using FM.Mathematics.DataTypes;
+using Server.Core.Data;
 using Server.Core.Entity;
 using Server.Core.Interfaces;
 using Server.Shared.Configurations;
-using Server.Shared.Data;
 
 namespace Server.Core.Match
 {
     public partial class MatchController
     {
-        public void SpawnUnit(Team team, PlayerIndex playerIndex)
+        public void SpawnUnit(Byte2 typeUnit, Team team, PlayerIndex playerIndex)
         {
-            _commands.Enqueue(() => Spawn(team, playerIndex));
+            _commands.Enqueue(() => Spawn(typeUnit, team, playerIndex));
         }
 
-        private void Spawn(Team team, PlayerIndex playerIndex)
+        private void Spawn(Byte2 typeUnit, Team team, PlayerIndex playerIndex)
         {
             IObjectSlot<UnitRuntime> slot = _objectPoolingService.GetFreeSlot();
             ushort id = (ushort)slot.Id;
@@ -26,15 +27,35 @@ namespace Server.Core.Match
                 Team = team,
                 PlayerIndex = playerIndex
             };
-            UnitFieldsUnit fieldsUnit = new() // default values
+
+            EntityDataUnit entityData = _entityProviderService.GetDataUnit(typeUnit);
+
+            UnitFieldsUnit fieldsUnit = new()
             {
-                indexUnit = new Byte2(0, 0),
-                maxSpeed = 5f,
-                accelTime = 1f,
-                brakeTime = 1f
+                IndexUnit = typeUnit,
+
+                MaxSpeed = 
+                entityData.EntityDataCharacter.MovementSpeed
+                + entityData.UpgradeMatch.GetCurrentValueUpgrade(TypeCharater.MovementSpeed, -1)
+                + entityData.UpgradeProfile.GetCurrentValueUpgrade(TypeCharater.MovementSpeed, -1),
+
+                AttackRadius =
+                entityData.EntityDataCharacter.AttackRadius
+                + entityData.UpgradeMatch.GetCurrentValueUpgrade(TypeCharater.AttackRadius, -1)
+                + entityData.UpgradeProfile.GetCurrentValueUpgrade(TypeCharater.AttackRadius, -1),
+
+                DetectionRadius =
+                entityData.EntityDataCharacter.DetectionRadius
+                + entityData.UpgradeMatch.GetCurrentValueUpgrade(TypeCharater.DetectionRadius, -1)
+                + entityData.UpgradeProfile.GetCurrentValueUpgrade(TypeCharater.DetectionRadius, -1),
+
+                AccelTime = entityData.EntityDataMain.AccelTime,
+                BrakeTime = entityData.EntityDataMain.BrakeTime,
+                FuncUpdateCell = _worldGrid.UpdateUnitCell
             };
             TeamSide side = playerIndex >= PlayerIndex.RedLeft ? TeamSide.Red : TeamSide.Blue;
             _navigationService.TryGetRoute(side, LaneOf(playerIndex), out Vector2[] route);
+
             UnitFieldsRoute fieldsRoute = new()
             {
                 StartPosition = _navigationService.GetStartPosition(playerIndex),
@@ -43,7 +64,8 @@ namespace Server.Core.Match
 
             UnitFieldsSpecial fieldsSpecial = new()
             {
-                SendCommand = _webSocket.SendCommand
+                SendCommand = _webSocket.SendCommand,
+                TargetSelector = _targetSelector
             };
 
             UnitRuntime unit = slot.TObj;
@@ -51,7 +73,8 @@ namespace Server.Core.Match
             slot.SetObject(unit);
 
             _units.Add(id, unit);
-            _webSocket.SendCommand(CommandWs.SpawnUnit, (fieldsUnit.indexUnit, id, team, playerIndex));
+            unit.CurrentCell = _worldGrid.SetUnitCell(fieldsRoute.StartPosition, id);
+            _webSocket.SendCommand(CommandWs.SpawnUnit, (fieldsUnit.IndexUnit, id, team, playerIndex));
         }
 
         /// <summary>

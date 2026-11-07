@@ -12,4 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 075e5d99492303043979d85619ca8e35, type: 3}
   m_Name: ProviderUnitService
   m_EditorClassIdentifier: UnityLife::UnityLife.Data.Provider.ProviderUnitService
-  _providerUnitData: []
+  _providerUnitData:
+  - SlotUnit:
+      X: 0
+      Y: 0
+    Unit: {fileID: 8019167841208469561, guid: cd43a3aeab70f5a42b1eb154e57b62a7, type: 3}

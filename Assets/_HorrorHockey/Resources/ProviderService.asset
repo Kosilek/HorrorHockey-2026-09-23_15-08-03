@@ -12,4 +12,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 13987c747e25abd40a7a2efea7a0e5b3, type: 3}
   m_Name: ProviderService
   m_EditorClassIdentifier: UnityLife::UnityLife.Data.Provider.ProviderService
-  _providerUnitService: {fileID: 0}
+  _providerUnitService: {fileID: 11400000, guid: 8738fb3aa08afbd4dbc7bed86f7d5d92, type: 2}

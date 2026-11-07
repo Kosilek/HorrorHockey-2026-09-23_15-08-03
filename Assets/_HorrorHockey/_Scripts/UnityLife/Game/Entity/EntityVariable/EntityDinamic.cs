@@ -46,6 +46,14 @@ namespace UnityLife.Game.Entity
             Debug.Log($"EntityDinamic: StartMovement from {start} with {controls.Length} controls.");
             _agentAI.StartMovement(start, controls);
         }
+
+        public void StartMovingRoute(FMVector2 start, FMVector2[] controls, float startSpeed)
+        {
+            if (_agentAI == null)
+                Initialize();
+            Debug.Log($"EntityDinamic: StartMovingRoute from {start} with {controls.Length} controls at {startSpeed}.");
+            _agentAI.StartMovingRoute(start, controls, startSpeed);
+        }
         #endregion
     }
 }

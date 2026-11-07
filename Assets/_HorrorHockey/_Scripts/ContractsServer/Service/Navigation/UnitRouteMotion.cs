@@ -19,6 +19,12 @@ namespace ContractsServer.Service.Navigation
         public float PathLength { get; private set; }
         public FMVector2 Position { get; private set; }
 
+        /// <summary>
+        /// <para>{EN} False while this route keeps its speed through the last point.</para>
+        /// {RU} false, пока этот маршрут не гасит скорость на последней точке.
+        /// </summary>
+        public bool StopsAtEnd { get; private set; } = true;
+
         public bool HasRoute => _route != null && _route.Length >= 2;
 
         #region Fields Unit
@@ -55,14 +61,33 @@ namespace ContractsServer.Service.Navigation
         #endregion
 
         /// <summary>
-        /// <para>{EN} Build the curve from the unit start through the controls. Y is world Z.</para>
-        /// {RU} Строит кривую от текущей точки юнита через контролы. Y — мировая Z.
+        /// <para>{EN} Build the curve from the unit start through the controls. Brakes to a stop at the end. Y is world Z.</para>
+        /// {RU} Строит кривую от текущей точки юнита через контролы. В конце тормозит до остановки. Y — мировая Z.
         /// </summary>
         public bool TryStart(FMVector2 start, FMVector2[] controls)
+        {
+            return TryStart(start, controls, stopAtEnd: true);
+        }
+
+        /// <summary>
+        /// <para>{EN} Same curve as TryStart. With stopAtEnd false the unit keeps its speed on the last point.</para>
+        /// {RU} Та же кривая, что у TryStart. При stopAtEnd false юнит не гасит скорость на последней точке.
+        /// </summary>
+        public bool TryStart(FMVector2 start, FMVector2[] controls, bool stopAtEnd)
+        {
+            return TryStart(start, controls, stopAtEnd, startSpeed: 0f);
+        }
+
+        /// <summary>
+        /// <para>{EN} Same curve as TryStart, but the unit enters it at startSpeed instead of accelerating from zero.</para>
+        /// {RU} Та же кривая, что у TryStart, но юнит входит в неё со скоростью startSpeed, а не разгоняется с нуля.
+        /// </summary>
+        public bool TryStart(FMVector2 start, FMVector2[] controls, bool stopAtEnd, float startSpeed)
         {
             PathProgress = 0f;
             CurrentSpeed = 0f;
             IsMoving = false;
+            StopsAtEnd = stopAtEnd;
             Position = start;
             _route = null;
             _routeDistance = null;
@@ -71,6 +96,7 @@ namespace ContractsServer.Service.Navigation
             if (!TryBuildRoute(start, controls, _curveStep))
                 return false;
 
+            CurrentSpeed = Min(Max(0f, startSpeed), Max(0f, _maxSpeed));
             IsMoving = true;
             SampleAt(0f);
             return true;
@@ -106,14 +132,19 @@ namespace ContractsServer.Service.Navigation
         public bool Advance(float deltaTime)
         {
             float remaining = PathLength - PathProgress;
-            CurrentSpeed = StepSpeed(remaining, deltaTime, _maxSpeed, _accelTime, _brakeTime);
+            float brakeTime = StopsAtEnd ? _brakeTime : 0f;
+            CurrentSpeed = StepSpeed(remaining, deltaTime, _maxSpeed, _accelTime, brakeTime);
             float moveDist = CurrentSpeed * deltaTime;
             if (moveDist >= remaining)
             {
                 PathProgress = PathLength;
-                CurrentSpeed = 0f;
                 SampleAt(PathProgress);
-                IsMoving = false;
+                if (StopsAtEnd)
+                {
+                    CurrentSpeed = 0f;
+                    IsMoving = false;
+                }
+
                 return true;
             }
 
@@ -134,7 +165,8 @@ namespace ContractsServer.Service.Navigation
             float remaining = PathLength - PathProgress;
             if (remaining <= 1e-4f)
             {
-                Complete();
+                if (StopsAtEnd)
+                    Complete();
                 return;
             }
 

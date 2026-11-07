@@ -17,9 +17,17 @@ namespace Domain.Game.Services
 
         public void CreateRoute(ushort indexUnit, FmVector2 start, FmVector2[] controls)
         {
+            CreateRoute(indexUnit, start, controls, stopAtEnd: true, startSpeed: 0f);
+        }
+
+        public void CreateRoute(ushort indexUnit, FmVector2 start, FmVector2[] controls, bool stopAtEnd, float startSpeed)
+        {
             if (_entityMovements.TryGetValue(indexUnit, out IEntityMovemet entityMovement))
             {
-                entityMovement.StartMovement(start, controls);
+                if (stopAtEnd)
+                    entityMovement.StartMovement(start, controls);
+                else
+                    entityMovement.StartMovingRoute(start, controls, startSpeed);
             }
         }
     }

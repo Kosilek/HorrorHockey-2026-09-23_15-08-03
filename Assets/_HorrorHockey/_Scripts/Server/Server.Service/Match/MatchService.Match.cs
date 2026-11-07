@@ -1,11 +1,12 @@
 ﻿using ContractsServer.Core.Enum;
+using FM.Mathematics.DataTypes;
 using Server.Shared.Core.Contracts;
 
 namespace Server.Service.Match
 {
     public partial class MatchService : IMatchService
     {
-        public void SpawnUnit(Team team, PlayerIndex playerIndex)
+        public void SpawnUnit(Byte2 typeUnit, Team team, PlayerIndex playerIndex)
         {
             if (guidTest == null || !_matchs.TryGetValue(guidTest, out var session))
             {
@@ -13,7 +14,7 @@ namespace Server.Service.Match
                 return;
             }
 
-            session.Controller.SpawnUnit(team, playerIndex);
+            session.Controller.SpawnUnit(typeUnit, team, playerIndex);
 
         }
     }

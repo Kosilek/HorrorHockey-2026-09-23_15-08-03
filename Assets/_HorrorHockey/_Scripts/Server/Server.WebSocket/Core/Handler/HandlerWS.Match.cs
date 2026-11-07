@@ -1,5 +1,6 @@
 using ContractsServer.Command;
 using ContractsServer.Core.Enum;
+using FM.Mathematics.DataTypes;
 using System;
 
 namespace Server.WebSocket.Core.Handler
@@ -14,9 +15,9 @@ namespace Server.WebSocket.Core.Handler
 
         internal void SpawnUnit(object data)
         {
-            if (data is ValueTuple<Team, PlayerIndex> spawnData)
+            if (data is ValueTuple<Byte2, Team, PlayerIndex> spawnData)
             {
-                _matchService.SpawnUnit(spawnData.Item1, spawnData.Item2);
+                _matchService.SpawnUnit(spawnData.Item1, spawnData.Item2, spawnData.Item3);
             }
         }
     }

@@ -17,6 +17,7 @@ namespace Domain.Service
             }
 
             DiBootstrap.Instance.Resolve<INavigationProviderService>();
+            DiBootstrap.Instance.Resolve<IEntityProviderService>();
         }
     }
 }

@@ -93,7 +93,7 @@ namespace UnityLife.Game.Entity.Navigations
         /// </summary>
         public void StartMovement(FMVector2[] points)
         {
-            Begin(new FMVector2(transform.position.x, transform.position.z), points);
+            Begin(new FMVector2(transform.position.x, transform.position.z), points, stopAtEnd: true);
         }
 
         /// <summary>
@@ -103,12 +103,23 @@ namespace UnityLife.Game.Entity.Navigations
         public void StartMovement(FMVector2 start, FMVector2[] controls)
         {
             transform.position = new Vector3(start.X, transform.position.y, start.Y);
-            Begin(start, controls);
+            Begin(start, controls, stopAtEnd: true);
         }
 
-        private void Begin(FMVector2 start, FMVector2[] points)
+        /// <summary>
+        /// <para>{EN} Server route without braking. The body snaps to start, enters at startSpeed and keeps its speed and tilt.</para>
+        /// {RU} Маршрут с сервера без торможения. Тело встаёт в start, входит со скоростью startSpeed и сохраняет скорость и наклон.
+        /// </summary>
+        public void StartMovingRoute(FMVector2 start, FMVector2[] controls, float startSpeed)
         {
-            _currentTilt = 0f;
+            transform.position = new Vector3(start.X, transform.position.y, start.Y);
+            Begin(start, controls, stopAtEnd: false, startSpeed);
+        }
+
+        private void Begin(FMVector2 start, FMVector2[] points, bool stopAtEnd, float startSpeed = 0f)
+        {
+            if (stopAtEnd)
+                _currentTilt = 0f;
             _isStopping = false;
             _turnSide = 0;
             _latchedTurn = -1;
@@ -116,7 +127,7 @@ namespace UnityLife.Game.Entity.Navigations
             _alignSide = 0;
             _groundHeight = transform.position.y;
 
-            if (!_motion.TryStart(start, points))
+            if (!_motion.TryStart(start, points, stopAtEnd, startSpeed))
             {
                 ApplyAnim();
                 return;
@@ -146,14 +157,17 @@ namespace UnityLife.Game.Entity.Navigations
 
             float remaining = PathLength - PathProgress;
             bool alreadyThere = remaining <= 1e-4f;
-            if (!alreadyThere && !_isStopping && IsBrakeZone(remaining, CurrentSpeed))
+            if (!alreadyThere && _motion.StopsAtEnd && !_isStopping && IsBrakeZone(remaining, CurrentSpeed))
                 _isStopping = true;
 
             _motion.Tick(deltaTime);
             if (alreadyThere)
             {
                 SnapToMotion();
-                FinishMove();
+                if (_motion.StopsAtEnd)
+                    FinishMove();
+                else
+                    ApplyAnim();
                 return;
             }
 
@@ -161,7 +175,10 @@ namespace UnityLife.Game.Entity.Navigations
             UpdateTurn();
             if (!_motion.IsMoving)
             {
-                FinishMove();
+                if (_motion.StopsAtEnd)
+                    FinishMove();
+                else
+                    ApplyAnim();
                 return;
             }
 

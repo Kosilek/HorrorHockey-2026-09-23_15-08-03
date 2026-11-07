@@ -1,4 +1,5 @@
-using Server.Shared.Data;
+using Server.Core.Data;
+using Server.Core.Module.Entity;
 using System;
 
 namespace Server.Core.Entity
@@ -13,17 +14,25 @@ namespace Server.Core.Entity
                 Team = dataUnit.Item1.Team;
                 PlayerIndex = dataUnit.Item1.PlayerIndex;
 
-                indexUnit = dataUnit.Item2.indexUnit;
+                IndexUnit = dataUnit.Item2.IndexUnit;
+                _funcUpdateCell = dataUnit.Item2.FuncUpdateCell;
 
                 _baseRoute = dataUnit.Item3.BaseRoute;
                 _followBaseRoute = true;
                 RouteControls = null;
                 _routeMotion.Initialize(
-                    dataUnit.Item2.maxSpeed,
-                    dataUnit.Item2.accelTime,
-                    dataUnit.Item2.brakeTime,
+                    dataUnit.Item2.MaxSpeed,
+                    dataUnit.Item2.AccelTime,
+                    dataUnit.Item2.BrakeTime,
                     dataUnit.Item3.StartPosition);
 
+                UnitAggressionData unitAggressionData = new()
+                {
+                    Id = this.Id,
+                    DetectionRadius = dataUnit.Item2.DetectionRadius,
+                    AttackRadius = dataUnit.Item2.AttackRadius
+                };
+                _unitAggression = new(dataUnit.Item4.TargetSelector, unitAggressionData);
                 _sendCommand = dataUnit.Item4.SendCommand;
             }
             else if (data is UnitRuntime unit && ReferenceEquals(unit, this))

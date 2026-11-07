@@ -62,7 +62,11 @@ namespace Domain.Server.Service
                     }
                     break;
                 case CommandWs.CreateRoute:
-                    if (data is ValueTuple<ushort, FmVector2, FmVector2[]> routeData)
+                    if (data is ValueTuple<ushort, FmVector2, FmVector2[], bool, float> routeMoving)
+                    {
+                        _runtime.CreateRoute(routeMoving.Item1, routeMoving.Item2, routeMoving.Item3, routeMoving.Item4, routeMoving.Item5);
+                    }
+                    else if (data is ValueTuple<ushort, FmVector2, FmVector2[]> routeData)
                     {
                         _runtime.CreateRoute(routeData.Item1, routeData.Item2, routeData.Item3);
                     }

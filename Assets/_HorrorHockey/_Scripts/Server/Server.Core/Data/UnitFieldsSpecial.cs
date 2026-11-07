@@ -1,10 +1,11 @@
-using FM.Mathematics.DataTypes;
+using Server.Core.Targets;
 using System;
 
-namespace Server.Shared.Data
+namespace Server.Core.Data
 {
     public class UnitFieldsSpecial
     {
         public Action<string, object> SendCommand { get; set; }
+        public TargetSelector TargetSelector { get; set; }
     }
 }

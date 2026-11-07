@@ -1,6 +1,6 @@
 using FM.Mathematics.DataTypes;
 
-namespace Server.Shared.Data
+namespace Server.Core.Data
 {
     public class UnitFieldsRoute
     {

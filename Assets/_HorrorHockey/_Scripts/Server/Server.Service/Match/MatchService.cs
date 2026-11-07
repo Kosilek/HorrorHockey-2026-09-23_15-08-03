@@ -1,5 +1,7 @@
+using ContractsServer.Core.Interfaces;
 using Server.Core.Interfaces;
 using Server.Core.Match;
+using Server.Core.WorldMap;
 using Server.Shared.Configurations;
 using Server.Shared.Core.Contracts;
 using Server.Shared.Core.Contracts.WebSocket;
@@ -16,6 +18,7 @@ namespace Server.Service.Match
         #region Components
         private readonly INavigationService _navigationService;
         private readonly ObjectPoolingConfiguration _configPool;
+        private readonly IEntityProviderService _entityProviderService;
         // Resolved lazily: WebSocketService depends on IMatchService, so a direct constructor dependency is circular.
         private readonly Func<IWebSocketService> _webSocketService;
         #endregion
@@ -27,10 +30,12 @@ namespace Server.Service.Match
         public MatchService(
             INavigationService navigationService,
             ObjectPoolingConfiguration configPool,
-            Func<IWebSocketService> webSocketService)
+            Func<IWebSocketService> webSocketService,
+            IEntityProviderService entityProviderService)
         {
             _navigationService = navigationService;
             _configPool = configPool;
+            _entityProviderService = entityProviderService;
             _webSocketService = webSocketService;
 
             _matchs = new();
@@ -64,10 +69,13 @@ namespace Server.Service.Match
         {
             string guid = Guid.NewGuid().ToString("N");
             guidTest = guid;
+            IWorldGrid worldGrid = new WorldGrid();
             MatchController match = new(
                 _navigationService,
                 _configPool,
-                _webSocketService());
+                _webSocketService(),
+                worldGrid,
+                _entityProviderService);
             MatchSession matchSession = new(match);
 
             if (!_matchs.TryAdd(guid, matchSession))

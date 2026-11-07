@@ -15,5 +15,11 @@ namespace Shared.Core.Contracts
         /// {RU} Маршрут с сервера: тело встаёт в start и идёт по той же кривой, что и серверный юнит.
         /// </summary>
         void StartMovement(Vector2 start, Vector2[] controls);
+
+        /// <summary>
+        /// <para>{EN} Server route without braking. The body snaps to start, enters at startSpeed and keeps its speed on the last point.</para>
+        /// {RU} Маршрут с сервера без торможения. Тело встаёт в start, входит со скоростью startSpeed и на последней точке скорость не гасит.
+        /// </summary>
+        void StartMovingRoute(Vector2 start, Vector2[] controls, float startSpeed);
     }
 }
