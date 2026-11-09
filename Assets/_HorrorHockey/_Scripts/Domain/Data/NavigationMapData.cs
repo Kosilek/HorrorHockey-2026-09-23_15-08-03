@@ -42,9 +42,6 @@ namespace Domain.Data
                 return false;
             }
 
-#if UNITY_EDITOR || UNITY_INCLUDE_INSTRUMENTATION
-            Debug.Log("{EN} NavigationMapData loaded. Contours: " + _objects.Count);
-#endif
             return true;
         }
     }

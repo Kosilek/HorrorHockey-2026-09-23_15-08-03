@@ -29,5 +29,11 @@ namespace ContractsServer.Core.Interfaces
 
         /// <inheritdoc cref="BuildRoute(FMVector2[])"/>
         FMVector2[] BuildRoute(FMVector2 from, FMVector2 to);
+
+        /// <summary>
+        /// <para>{EN} False if the point lies inside an obstacle with the route clearance. Thread safe.</para>
+        /// {RU} false, если точка внутри препятствия с учётом зазора маршрута. Потокобезопасно.
+        /// </summary>
+        bool IsWalkable(FMVector2 point);
     }
 }

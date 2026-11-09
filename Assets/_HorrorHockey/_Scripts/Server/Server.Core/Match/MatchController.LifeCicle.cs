@@ -20,6 +20,9 @@ namespace Server.Core.Match
             {
                 unit.Tick(_deltaTime);
             }
+
+            ResolveContacts();
+            FindContacts();
         }
     }
 }

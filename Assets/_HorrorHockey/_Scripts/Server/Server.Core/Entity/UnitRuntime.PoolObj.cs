@@ -26,6 +26,11 @@ namespace Server.Core.Entity
                     dataUnit.Item2.BrakeTime,
                     dataUnit.Item3.StartPosition);
 
+                BodyWidth = dataUnit.Item2.BodyWidth;
+                Mass = dataUnit.Item2.Mass;
+
+                StunTime = dataUnit.Item2.StunTime;
+
                 UnitAggressionData unitAggressionData = new()
                 {
                     Id = this.Id,
@@ -34,6 +39,13 @@ namespace Server.Core.Entity
                 };
                 _unitAggression = new(dataUnit.Item4.TargetSelector, unitAggressionData);
                 _sendCommand = dataUnit.Item4.SendCommand;
+                _navigationService = dataUnit.Item4.NavigationService;
+                _circleControls = null;
+                _circleComplete = null;
+                _stunCount = 0;
+                _attackCharge = false;
+                _contactWith = null;
+                _contactPartner = null;
             }
             else if (data is UnitRuntime unit && ReferenceEquals(unit, this))
             {

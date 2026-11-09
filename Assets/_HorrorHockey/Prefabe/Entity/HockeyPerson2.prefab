@@ -127,7 +127,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: UnityLife::UnityLife.Game.Entity.Navigations.AgentAI
   _curveStep: 0.05
-  _maxSpeed: 5
+  _maxSpeed: 10
   _accelTime: 1
   _brakeTime: 1
   _faceMoveDirection: 1
@@ -136,6 +136,7 @@ MonoBehaviour:
   _maxTilt: 20
   _tiltSmooth: 8
   _tiltStrength: 2
+  _correctionSharpness: 6
 --- !u!114 &8019167841208469561
 MonoBehaviour:
   m_ObjectHideFlags: 0

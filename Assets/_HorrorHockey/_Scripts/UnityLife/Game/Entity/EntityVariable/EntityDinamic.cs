@@ -35,7 +35,6 @@ namespace UnityLife.Game.Entity
         {
             if (_agentAI == null)
                 Initialize();
-            Debug.Log($"EntityDinamic: StartMovement with {points.Length} points.");
             _agentAI.StartMovement(points);
         }
 
@@ -43,7 +42,6 @@ namespace UnityLife.Game.Entity
         {
             if (_agentAI == null)
                 Initialize();
-            Debug.Log($"EntityDinamic: StartMovement from {start} with {controls.Length} controls.");
             _agentAI.StartMovement(start, controls);
         }
 
@@ -51,8 +49,42 @@ namespace UnityLife.Game.Entity
         {
             if (_agentAI == null)
                 Initialize();
-            Debug.Log($"EntityDinamic: StartMovingRoute from {start} with {controls.Length} controls at {startSpeed}.");
             _agentAI.StartMovingRoute(start, controls, startSpeed);
+        }
+
+        public void SlowTo(float speed)
+        {
+            if (_agentAI == null)
+                Initialize();
+            _agentAI.SlowTo(speed);
+        }
+
+        public void PauseMovement()
+        {
+            if (_agentAI == null)
+                Initialize();
+            _agentAI.PauseMovement();
+        }
+
+        public void ResumeMovement()
+        {
+            if (_agentAI == null)
+                Initialize();
+            _agentAI.ResumeMovement();
+        }
+
+        public void StopMovement()
+        {
+            if (_agentAI == null)
+                Initialize();
+            _agentAI.StopMovement();
+        }
+
+        public void StartAnimationClip(byte animationClip)
+        {
+            if (_agentAI == null)
+                Initialize();
+            _agentAI.StartAnimationClip(animationClip);
         }
         #endregion
     }

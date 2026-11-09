@@ -13,5 +13,10 @@ namespace Server.Core.Data
 
         public float DetectionRadius { get; set; }
         public float AttackRadius { get; set; }
-}
+
+        public float BodyWidth { get; set; }
+        public float Mass { get; set; }
+
+        public float StunTime { get; set; }
+    }
 }

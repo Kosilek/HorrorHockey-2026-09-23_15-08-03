@@ -26,8 +26,12 @@ namespace UnityLife.Game.Entity.Navigations
         [SerializeField] private float _maxTilt = 20f;
         [SerializeField] private float _tiltSmooth = 8f;
         [SerializeField] private float _tiltStrength = 2f;
+        [Header("Server sync")]
+        [Tooltip("Как быстро тело плавно доезжает до серверной позиции, если разошлось с ней. Больше — быстрее.")]
+        [SerializeField, Min(0.1f)] private float _correctionSharpness = 6f;
 
         private Animator _animator;
+        private Vector2 _visualOffset;
 
         private const float TurnEndAngle = 0.75f;
         private const string MoveParam = "Move";
@@ -97,27 +101,92 @@ namespace UnityLife.Game.Entity.Navigations
         }
 
         /// <summary>
-        /// <para>{EN} Server route. The body snaps to start so the curve matches the server one exactly.</para>
-        /// {RU} Маршрут с сервера. Тело встаёт в start, чтобы кривая точно совпала с серверной.
+        /// <para>{EN} Server route. The curve is the server one from start. If the body stands elsewhere, it slides onto the curve smoothly, without a jump.</para>
+        /// {RU} Маршрут с сервера. Кривая — серверная от start. Если тело стоит в другом месте, оно плавно съезжает на кривую, без прыжка.
         /// </summary>
         public void StartMovement(FMVector2 start, FMVector2[] controls)
         {
-            transform.position = new Vector3(start.X, transform.position.y, start.Y);
             Begin(start, controls, stopAtEnd: true);
         }
 
         /// <summary>
-        /// <para>{EN} Server route without braking. The body snaps to start, enters at startSpeed and keeps its speed and tilt.</para>
-        /// {RU} Маршрут с сервера без торможения. Тело встаёт в start, входит со скоростью startSpeed и сохраняет скорость и наклон.
+        /// <para>{EN} Server route without braking. Enters at startSpeed and keeps its speed and tilt. Slides onto the curve smoothly like StartMovement.</para>
+        /// {RU} Маршрут с сервера без торможения. Входит со скоростью startSpeed и сохраняет скорость и наклон. На кривую съезжает плавно, как StartMovement.
         /// </summary>
         public void StartMovingRoute(FMVector2 start, FMVector2[] controls, float startSpeed)
         {
-            transform.position = new Vector3(start.X, transform.position.y, start.Y);
             Begin(start, controls, stopAtEnd: false, startSpeed);
+        }
+
+        /// <summary>
+        /// <para>{EN} Plays the clip at this index in the animator controller, from the start.</para>
+        /// {RU} Проигрывает клип с этим индексом в контроллере аниматора, с начала.
+        /// </summary>
+        public void StartAnimationClip(byte animationClip)
+        {
+            EnsureAnim();
+            if (_animator == null || _animator.runtimeAnimatorController == null)
+                return;
+
+            AnimationClip[] clips = _animator.runtimeAnimatorController.animationClips;
+            if (animationClip >= clips.Length)
+                return;
+
+            _animator.Play(clips[animationClip].name, 0, 0f);
+        }
+
+        /// <summary>
+        /// <para>{EN} Server slow: speed drops to this value and climbs back over two accel times.</para>
+        /// {RU} Замедление с сервера: скорость падает до этого значения и восстанавливается за два времени разгона.
+        /// </summary>
+        public void SlowTo(float speed)
+        {
+            _motion.SlowTo(speed);
+        }
+
+        /// <summary>
+        /// <para>{EN} Server stun: the body stops at once and keeps the route.</para>
+        /// {RU} Стан с сервера: тело сразу встаёт и сохраняет маршрут.
+        /// </summary>
+        public void PauseMovement()
+        {
+            _motion.Pause();
+            _isStopping = false;
+            _turnSide = 0;
+            ApplyAnim();
+        }
+
+        /// <summary>
+        /// <para>{EN} Stun is over: the same route continues with the usual accel.</para>
+        /// {RU} Стан снят: тот же маршрут продолжается обычным разгоном.
+        /// </summary>
+        public void ResumeMovement()
+        {
+            _motion.Resume();
+            UpdateTurn();
+            ApplyAnim();
+        }
+
+        /// <summary>
+        /// <para>{EN} Server dropped the orders: the route is gone, the body stays where it is.</para>
+        /// {RU} Сервер сбросил приказ: маршрута нет, тело остаётся на месте.
+        /// </summary>
+        public void StopMovement()
+        {
+            _motion.Stop();
+            _isStopping = false;
+            _turnSide = 0;
+            _latchedTurn = -1;
+            _alignLatched = false;
+            ApplyAnim();
         }
 
         private void Begin(FMVector2 start, FMVector2[] points, bool stopAtEnd, float startSpeed = 0f)
         {
+            // Тело остаётся где стоит: расхождение с серверным start рисуется смещением и гаснет в Update.
+            Vector3 body = transform.position;
+            _visualOffset = new Vector2(body.x - start.X, body.z - start.Y);
+
             if (stopAtEnd)
                 _currentTilt = 0f;
             _isStopping = false;
@@ -144,10 +213,24 @@ namespace UnityLife.Game.Entity.Navigations
             if (deltaTime <= 0f)
                 return;
 
-            if (_motion.IsMoving)
+            bool correcting = DecayVisualOffset(deltaTime);
+            if (_motion.IsMoving && !_motion.IsPaused)
                 Tick(deltaTime);
+            else if (correcting)
+                transform.position = Ground(new Vector2(_motion.Position.X, _motion.Position.Y));
 
             UpdateTilt(deltaTime);
+        }
+
+        private bool DecayVisualOffset(float deltaTime)
+        {
+            if (_visualOffset == Vector2.zero)
+                return false;
+
+            _visualOffset = Vector2.Lerp(_visualOffset, Vector2.zero, 1f - Mathf.Exp(-_correctionSharpness * deltaTime));
+            if (_visualOffset.sqrMagnitude < 1e-6f)
+                _visualOffset = Vector2.zero;
+            return true;
         }
 
         private void Tick(float deltaTime)
@@ -427,9 +510,10 @@ namespace UnityLife.Game.Entity.Navigations
         private void ApplyAnim()
         {
             EnsureAnim();
-            bool turn = IsMoving && !_isStopping && _turnSide != 0;
+            bool moving = IsMoving && !_motion.IsPaused;
+            bool turn = moving && !_isStopping && _turnSide != 0;
             bool stop = _isStopping;
-            bool move = IsMoving && !_isStopping && !turn;
+            bool move = moving && !_isStopping && !turn;
             SetAnim(ref _moveAnim, move);
             SetAnim(ref _stopAnim, stop);
             SetAnim(ref _leftAnim, turn && _turnSide < 0);
@@ -585,7 +669,7 @@ namespace UnityLife.Game.Entity.Navigations
 
         private Vector3 Ground(Vector2 point)
         {
-            return new Vector3(point.x, _groundHeight, point.y);
+            return new Vector3(point.x + _visualOffset.x, _groundHeight, point.y + _visualOffset.y);
         }
 
         private struct PathTurn

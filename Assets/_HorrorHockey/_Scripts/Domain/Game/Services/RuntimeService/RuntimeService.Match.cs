@@ -30,5 +30,38 @@ namespace Domain.Game.Services
                     entityMovement.StartMovingRoute(start, controls, startSpeed);
             }
         }
+
+        public void SlowUnit(ushort indexUnit, float speed)
+        {
+            if (_entityMovements.TryGetValue(indexUnit, out IEntityMovemet entityMovement))
+                entityMovement.SlowTo(speed);
+        }
+
+        public void StunUnit(ushort indexUnit)
+        {
+            if (_entityMovements.TryGetValue(indexUnit, out IEntityMovemet entityMovement))
+                entityMovement.PauseMovement();
+        }
+
+        public void UnstunUnit(ushort indexUnit)
+        {
+            if (_entityMovements.TryGetValue(indexUnit, out IEntityMovemet entityMovement))
+                entityMovement.ResumeMovement();
+        }
+
+        public void StopUnit(ushort indexUnit)
+        {
+            if (_entityMovements.TryGetValue(indexUnit, out IEntityMovemet entityMovement))
+                entityMovement.StopMovement();
+        }
+
+        public void StartAnimationClip(int indexUnit, byte animationClip)
+        {
+            if ((uint)indexUnit > ushort.MaxValue)
+                return;
+
+            if (_entityMovements.TryGetValue((ushort)indexUnit, out IEntityMovemet entityMovement))
+                entityMovement.StartAnimationClip(animationClip);
+        }
     }
 }

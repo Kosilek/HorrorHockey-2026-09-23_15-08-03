@@ -1,12 +1,10 @@
+using ContractsServer.BinaryProtocol;
 using ContractsServer.Command;
-using ContractsServer.Core.Enum;
+using ContractsServer.Transport;
 using Server.Shared.Core.Contracts;
 using Server.Shared.Core.Contracts.WebSocket;
 using Server.WebSocket.Core.Handler;
-using Shared.Core.Contracts;
-using Shared.Core.Contracts.Server;
-using System;
-using System.Threading.Tasks;
+using UnityEngine;
 
 namespace Server.WebSocket.Service
 {
@@ -17,29 +15,34 @@ namespace Server.WebSocket.Service
         private readonly HandlerWS _handlerWS;
         #endregion
 
-        #region Times Fields
-        // Resolved lazily: NetworkService depends on IWebSocketService, so a direct constructor dependency is circular.
-        private readonly Func<INetworkService> _networkService;
-        #endregion
+        private readonly IServerToClientTransport _toClient;
 
         public WebSocketService(
             IMatchService matchService,
-            Func<INetworkService> networkService)
+            IServerToClientTransport toClient)
         {
             _matchService = matchService;
-            _networkService = networkService;
+            _toClient = toClient;
 
             _handlerWS = new(matchService, SendCommand);
         }
 
-        public void ReceiveCommand(string command, object data)
+        public void ReceiveFrame(byte[] frame)
         {
+            if (!WsBinaryCodec.TryDecode(frame, out string command, out object data))
+            {
+                Debug.LogError("Binary decode failed on the server.");
+                return;
+            }
+
             switch (command)
             {
-                case CommandWs.StartMatch: _handlerWS.StartMatch(data);
+                case CommandWs.StartMatch:
+                    _handlerWS.StartMatch(data);
                     break;
 
-                case CommandWs.SpawnUnit: _handlerWS.SpawnUnit(data);
+                case CommandWs.SpawnUnit:
+                    _handlerWS.SpawnUnit(data);
                     break;
 
                 default: break;
@@ -48,7 +51,13 @@ namespace Server.WebSocket.Service
 
         public void SendCommand(string command, object data)
         {
-            _networkService().Receive(command, data);
+            if (!WsBinaryCodec.TryEncode(command, data, out byte[] frame))
+            {
+                Debug.LogError($"Binary encode failed on the server: {command}");
+                return;
+            }
+
+            _toClient.SendFrame(frame);
         }
     }
 }

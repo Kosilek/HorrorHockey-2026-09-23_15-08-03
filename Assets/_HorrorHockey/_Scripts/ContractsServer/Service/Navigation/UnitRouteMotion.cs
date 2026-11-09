@@ -27,12 +27,26 @@ namespace ContractsServer.Service.Navigation
 
         public bool HasRoute => _route != null && _route.Length >= 2;
 
+        /// <summary>
+        /// <para>{EN} True while paused. Speed is zero, the route and progress are kept.</para>
+        /// {RU} true на паузе. Скорость ноль, маршрут и пройденный путь сохраняются.
+        /// </summary>
+        public bool IsPaused { get; private set; }
+
         #region Fields Unit
         private float _maxSpeed;
+        public float MaxSpeed => _maxSpeed;
         private float _accelTime;
         private float _brakeTime;
 
         private readonly float _curveStep = GameConstants.CurveStep;
+        #endregion
+
+        #region Fields Slow
+        private const float SlowRecoverAccelTimes = 2f;
+
+        private float _slowTimeLeft;
+        private float _slowRecoverRate;
         #endregion
 
         #region Action Fields
@@ -54,11 +68,47 @@ namespace ContractsServer.Service.Navigation
             PathProgress = 0f;
             CurrentSpeed = 0f;
             IsMoving = false;
+            IsPaused = false;
+            _slowTimeLeft = 0f;
+            _slowRecoverRate = 0f;
             _route = null;
             _routeDistance = null;
             PathLength = 0f;
         }
         #endregion
+
+        /// <summary>
+        /// <para>{EN} Drops the speed to this value at once. Then it climbs back to max over two accel times. A new call restarts the recovery from the new speed.</para>
+        /// {RU} Сразу опускает скорость до этого значения. Затем она возвращается к максимуму за два времени разгона. Новый вызов перезапускает восстановление от новой скорости.
+        /// </summary>
+        public void SlowTo(float speed)
+        {
+            float maxSpeed = Max(0f, _maxSpeed);
+            CurrentSpeed = Min(Max(0f, speed), maxSpeed);
+            _slowTimeLeft = SlowRecoverAccelTimes * _accelTime;
+            _slowRecoverRate = _slowTimeLeft > 1e-4f ? (maxSpeed - CurrentSpeed) / _slowTimeLeft : 0f;
+            if (_slowRecoverRate <= 0f)
+                _slowTimeLeft = 0f;
+        }
+
+        /// <summary>
+        /// <para>{EN} Stops at once and holds the place. The route stays.</para>
+        /// {RU} Сразу останавливает и держит на месте. Маршрут остаётся.
+        /// </summary>
+        public void Pause()
+        {
+            IsPaused = true;
+            CurrentSpeed = 0f;
+        }
+
+        /// <summary>
+        /// <para>{EN} Continues the same route with the usual accel from zero.</para>
+        /// {RU} Продолжает тот же маршрут обычным разгоном с нуля.
+        /// </summary>
+        public void Resume()
+        {
+            IsPaused = false;
+        }
 
         /// <summary>
         /// <para>{EN} Build the curve from the unit start through the controls. Brakes to a stop at the end. Y is world Z.</para>
@@ -96,7 +146,7 @@ namespace ContractsServer.Service.Navigation
             if (!TryBuildRoute(start, controls, _curveStep))
                 return false;
 
-            CurrentSpeed = Min(Max(0f, startSpeed), Max(0f, _maxSpeed));
+            CurrentSpeed = IsPaused ? 0f : Min(Max(0f, startSpeed), Max(0f, _maxSpeed));
             IsMoving = true;
             SampleAt(0f);
             return true;
@@ -133,7 +183,9 @@ namespace ContractsServer.Service.Navigation
         {
             float remaining = PathLength - PathProgress;
             float brakeTime = StopsAtEnd ? _brakeTime : 0f;
-            CurrentSpeed = StepSpeed(remaining, deltaTime, _maxSpeed, _accelTime, brakeTime);
+            CurrentSpeed = StepSpeed(CurrentSpeed, _slowTimeLeft, remaining, deltaTime, _maxSpeed, _accelTime, brakeTime);
+            if (_slowTimeLeft > 0f)
+                _slowTimeLeft = Max(0f, _slowTimeLeft - deltaTime);
             float moveDist = CurrentSpeed * deltaTime;
             if (moveDist >= remaining)
             {
@@ -159,7 +211,7 @@ namespace ContractsServer.Service.Navigation
         /// </summary>
         public void Tick(float deltaTime)
         {
-            if (!IsMoving || deltaTime <= 0f)
+            if (!IsMoving || IsPaused || deltaTime <= 0f)
                 return;
 
             float remaining = PathLength - PathProgress;
@@ -246,6 +298,218 @@ namespace ContractsServer.Service.Navigation
             return withStart;
         }
 
+        #region Contact
+        /// <summary>
+        /// <para>{EN} First touch of two round bodies while both keep their current routes. Both run ahead on copies of their state
+        /// with the same accel, brake, slow and pause, so nothing here changes. Point lies on the line between centers, on the edge of b.</para>
+        /// {RU} Первое касание двух круглых тел, если оба продолжат свои текущие маршруты. Оба прогоняются вперёд на копии состояния
+        /// с тем же разгоном, тормозом, замедлением и паузой, поэтому здесь ничего не меняется. Точка — на линии между центрами, на краю b.
+        /// </summary>
+        /// <param name="radiusA">{EN} Body radius of a. {RU} Радиус тела a.</param>
+        /// <param name="frozenA">{EN} a stands still whatever its route, e.g. attacking. {RU} a стоит на месте независимо от маршрута, например в атаке.</param>
+        /// <param name="horizon">{EN} How far ahead to look, seconds. {RU} На сколько секунд вперёд смотреть.</param>
+        /// <param name="step">{EN} Simulation step, seconds. Pass the server tick for the exact match. {RU} Шаг прогона, с. Для точного совпадения — тик сервера.</param>
+        /// <param name="time">{EN} Seconds from now until the touch. {RU} Секунд от текущего момента до касания.</param>
+        public static bool TryFindContact(
+            UnitRouteMotion a, float radiusA, bool frozenA,
+            UnitRouteMotion b, float radiusB, bool frozenB,
+            float horizon, float step,
+            out float time, out FMVector2 point)
+        {
+            return TryFindContact(a, radiusA, frozenA, b, radiusB, frozenB, horizon, step, out time, out point, out _);
+        }
+
+        /// <summary>
+        /// <para>{EN} Same as above, plus where the center of a stands at the touch. Head a there to meet b edge to edge, not center to center.</para>
+        /// {RU} То же, что выше, плюс где стоит центр a в момент касания. Веди a туда, чтобы встретить b краями, а не центрами.
+        /// </summary>
+        /// <param name="centerA">{EN} Center of a at the touch, radiusA + radiusB away from the center of b. {RU} Центр a в момент касания, на расстоянии radiusA + radiusB от центра b.</param>
+        public static bool TryFindContact(
+            UnitRouteMotion a, float radiusA, bool frozenA,
+            UnitRouteMotion b, float radiusB, bool frozenB,
+            float horizon, float step,
+            out float time, out FMVector2 point, out FMVector2 centerA)
+        {
+            time = 0f;
+            point = default;
+            centerA = default;
+            if (a == null || b == null || step <= 1e-4f)
+                return false;
+
+            float radius = radiusA + radiusB;
+            if (radius <= 0f)
+                return false;
+
+            float radiusSqr = radius * radius;
+            float shareB = radiusB / radius;
+            ContactProbe probeA = a.CreateProbe(frozenA);
+            ContactProbe probeB = b.CreateProbe(frozenB);
+            if (DistanceSqr(probeA.Position, probeB.Position) <= radiusSqr)
+            {
+                point = Lerp(probeB.Position, probeA.Position, shareB);
+                centerA = probeA.Position;
+                return true;
+            }
+
+            float elapsed = 0f;
+            while (elapsed < horizon)
+            {
+                if (!probeA.Moving && !probeB.Moving)
+                    return false;
+
+                float deltaTime = Min(step, horizon - elapsed);
+                FMVector2 fromA = probeA.Position;
+                FMVector2 fromB = probeB.Position;
+                a.StepProbe(ref probeA, deltaTime);
+                b.StepProbe(ref probeB, deltaTime);
+
+                // Внутри шага движение прямое: ищем вход в касание на отрезке, чтобы быстрые тела не проскочили друг сквозь друга.
+                if (TryEnterOnStep(fromA, probeA.Position, fromB, probeB.Position, radiusSqr, out float along))
+                {
+                    FMVector2 touchA = Lerp(fromA, probeA.Position, along);
+                    FMVector2 touchB = Lerp(fromB, probeB.Position, along);
+                    time = elapsed + deltaTime * along;
+                    point = Lerp(touchB, touchA, shareB);
+                    centerA = touchA;
+                    return true;
+                }
+
+                elapsed += deltaTime;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// <para>{EN} Touch of two round bodies within one tick. Bodies that already touch count only while they keep closing in,
+        /// so a unit can drive away from the one it stopped at.</para>
+        /// {RU} Касание двух круглых тел в пределах одного тика. Уже касающиеся тела засчитываются, только пока продолжают сближаться,
+        /// поэтому юнит может отъехать от того, о кого остановился.
+        /// </summary>
+        /// <param name="time">{EN} Seconds from the tick start until the touch, 0 if they already touch. {RU} Секунд от начала тика до касания, 0 если уже касаются.</param>
+        /// <param name="centerA">{EN} Center of a at the touch. {RU} Центр a в момент касания.</param>
+        /// <param name="centerB">{EN} Center of b at the touch. {RU} Центр b в момент касания.</param>
+        public static bool TryFindHit(
+            UnitRouteMotion a, float radiusA, bool frozenA,
+            UnitRouteMotion b, float radiusB, bool frozenB,
+            float deltaTime, out float time, out FMVector2 centerA, out FMVector2 centerB)
+        {
+            time = 0f;
+            centerA = default;
+            centerB = default;
+            if (a == null || b == null || deltaTime <= 1e-4f)
+                return false;
+
+            float radius = radiusA + radiusB;
+            if (radius <= 0f)
+                return false;
+
+            ContactProbe probeA = a.CreateProbe(frozenA);
+            ContactProbe probeB = b.CreateProbe(frozenB);
+            if (!probeA.Moving && !probeB.Moving)
+                return false;
+
+            FMVector2 fromA = probeA.Position;
+            FMVector2 fromB = probeB.Position;
+            a.StepProbe(ref probeA, deltaTime);
+            b.StepProbe(ref probeB, deltaTime);
+
+            float radiusSqr = radius * radius;
+            float startSqr = DistanceSqr(fromA, fromB);
+            if (startSqr <= radiusSqr)
+            {
+                centerA = fromA;
+                centerB = fromB;
+                return DistanceSqr(probeA.Position, probeB.Position) < startSqr - 1e-6f;
+            }
+
+            if (!TryEnterOnStep(fromA, probeA.Position, fromB, probeB.Position, radiusSqr, out float along))
+                return false;
+
+            time = deltaTime * along;
+            centerA = Lerp(fromA, probeA.Position, along);
+            centerB = Lerp(fromB, probeB.Position, along);
+            return true;
+        }
+
+        private ContactProbe CreateProbe(bool frozen)
+        {
+            return new ContactProbe
+            {
+                Moving = !frozen && IsMoving && !IsPaused && HasRoute,
+                Speed = CurrentSpeed,
+                Progress = PathProgress,
+                SlowTimeLeft = _slowTimeLeft,
+                Position = Position
+            };
+        }
+
+        private void StepProbe(ref ContactProbe probe, float deltaTime)
+        {
+            if (!probe.Moving)
+                return;
+
+            float remaining = PathLength - probe.Progress;
+            if (remaining <= 1e-4f)
+            {
+                probe.Moving = false;
+                return;
+            }
+
+            float brakeTime = StopsAtEnd ? _brakeTime : 0f;
+            probe.Speed = StepSpeed(probe.Speed, probe.SlowTimeLeft, remaining, deltaTime, _maxSpeed, _accelTime, brakeTime);
+            if (probe.SlowTimeLeft > 0f)
+                probe.SlowTimeLeft = Max(0f, probe.SlowTimeLeft - deltaTime);
+
+            probe.Progress = Min(PathLength, probe.Progress + probe.Speed * deltaTime);
+            if (TrySample(probe.Progress, out FMVector2 position, out _))
+                probe.Position = position;
+        }
+
+        private static bool TryEnterOnStep(FMVector2 fromA, FMVector2 toA, FMVector2 fromB, FMVector2 toB, float radiusSqr, out float along)
+        {
+            along = 0f;
+            float dx = fromA.X - fromB.X;
+            float dy = fromA.Y - fromB.Y;
+            float vx = (toA.X - fromA.X) - (toB.X - fromB.X);
+            float vy = (toA.Y - fromA.Y) - (toB.Y - fromB.Y);
+
+            // |d + v·t|² = R²  →  a·t² + b·t + c = 0, t в [0, 1]
+            float a = vx * vx + vy * vy;
+            float b = 2f * (dx * vx + dy * vy);
+            float c = dx * dx + dy * dy - radiusSqr;
+            if (a <= 1e-8f || b >= 0f)
+                return false;
+
+            float discriminant = b * b - 4f * a * c;
+            if (discriminant < 0f)
+                return false;
+
+            float t = (-b - Sqrt(discriminant)) / (2f * a);
+            if (t < 0f || t > 1f)
+                return false;
+
+            along = t;
+            return true;
+        }
+
+        private static float DistanceSqr(FMVector2 a, FMVector2 b)
+        {
+            float dx = a.X - b.X;
+            float dy = a.Y - b.Y;
+            return dx * dx + dy * dy;
+        }
+
+        private struct ContactProbe
+        {
+            public bool Moving;
+            public float Speed;
+            public float Progress;
+            public float SlowTimeLeft;
+            public FMVector2 Position;
+        }
+        #endregion
+
         private void SampleAt(float distance)
         {
             var pos = Position;
@@ -254,7 +518,7 @@ namespace ContractsServer.Service.Navigation
             Debug.DrawLine(new Vector3(pos.X, 0f, pos.Y), new Vector3(Position.X, 0f, Position.Y), Color.red, 15f);
         }
 
-        private float StepSpeed(float remaining, float deltaTime, float maxSpeed, float accelTime, float brakeTime)
+        private float StepSpeed(float speed, float slowTimeLeft, float remaining, float deltaTime, float maxSpeed, float accelTime, float brakeTime)
         {
             maxSpeed = Max(0f, maxSpeed);
             float accelRate = accelTime > 1e-4f ? maxSpeed / accelTime : float.PositiveInfinity;
@@ -265,8 +529,10 @@ namespace ContractsServer.Service.Navigation
                 ? maxSpeed
                 : Sqrt(2f * brakeRate * Max(0f, remaining));
             float target = Min(maxSpeed, brakeCap);
-            float rate = target + 1e-4f >= CurrentSpeed ? accelRate : brakeRate;
-            return MoveTowards(CurrentSpeed, target, rate * deltaTime);
+            float rate = target + 1e-4f >= speed
+                ? (slowTimeLeft > 0f ? _slowRecoverRate : accelRate)
+                : brakeRate;
+            return MoveTowards(speed, target, rate * deltaTime);
         }
 
         private static float MoveTowards(float current, float target, float maxDelta)

@@ -1,8 +1,6 @@
 using ContractsServer.Core.Enum;
 using FM.Mathematics.DataTypes;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace ContractsServer.Data.Entity
 {
@@ -22,6 +20,10 @@ namespace ContractsServer.Data.Entity
 
         public float AccelTime { get; set; }
         public float BrakeTime { get; set; }
+
+        public float Mass { get; set; }
+
+        public float StunTime { get; set; }
 
         public UnlockRequirement UnlockRequirements { get; set; }
     }

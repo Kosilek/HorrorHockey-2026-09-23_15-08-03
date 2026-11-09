@@ -2,7 +2,6 @@ using _FM.DI;
 using ContractsServer.Command;
 using ContractsServer.Core.Enum;
 using FM.Mathematics.DataTypes;
-using Server.Shared.Core.Contracts.WebSocket;
 using Shared.Core.Contracts.Server;
 using System.Collections;
 using UnityEngine;
@@ -12,8 +11,6 @@ namespace UnityLife.Service
 {
     public class GameService : MonoBehaviour
     {
-        [Inject]
-        private IWebSocketService _webSocket;
         [Inject]
         private INetworkService _networkService;
 
@@ -35,7 +32,7 @@ namespace UnityLife.Service
 
             if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
             {
-                _webSocket.ReceiveCommand(CommandWs.StartMatch, null);
+                _networkService.Send(CommandWs.StartMatch, null);
             }
             if (Keyboard.current != null && Keyboard.current.digit1Key.wasPressedThisFrame)
             {

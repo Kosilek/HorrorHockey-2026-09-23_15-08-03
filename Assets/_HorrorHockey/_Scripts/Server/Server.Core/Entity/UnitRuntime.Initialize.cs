@@ -7,6 +7,7 @@ namespace Server.Core.Entity
         public UnitRuntime()
         { 
             _routeMotion = new();
+            _random = new();
         }
     }
 }

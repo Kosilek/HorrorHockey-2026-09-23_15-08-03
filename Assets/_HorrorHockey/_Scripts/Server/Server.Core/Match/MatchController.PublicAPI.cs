@@ -34,7 +34,7 @@ namespace Server.Core.Match
             {
                 IndexUnit = typeUnit,
 
-                MaxSpeed = 
+                MaxSpeed =
                 entityData.EntityDataCharacter.MovementSpeed
                 + entityData.UpgradeMatch.GetCurrentValueUpgrade(TypeCharater.MovementSpeed, -1)
                 + entityData.UpgradeProfile.GetCurrentValueUpgrade(TypeCharater.MovementSpeed, -1),
@@ -51,7 +51,12 @@ namespace Server.Core.Match
 
                 AccelTime = entityData.EntityDataMain.AccelTime,
                 BrakeTime = entityData.EntityDataMain.BrakeTime,
-                FuncUpdateCell = _worldGrid.UpdateUnitCell
+                FuncUpdateCell = _worldGrid.UpdateUnitCell,
+
+                BodyWidth = entityData.EntityDataMain.BodyWidth,
+                Mass = entityData.EntityDataMain.Mass,
+
+                StunTime = entityData.EntityDataMain.StunTime
             };
             TeamSide side = playerIndex >= PlayerIndex.RedLeft ? TeamSide.Red : TeamSide.Blue;
             _navigationService.TryGetRoute(side, LaneOf(playerIndex), out Vector2[] route);
@@ -65,7 +70,8 @@ namespace Server.Core.Match
             UnitFieldsSpecial fieldsSpecial = new()
             {
                 SendCommand = _webSocket.SendCommand,
-                TargetSelector = _targetSelector
+                TargetSelector = _targetSelector,
+                NavigationService = _navigationService
             };
 
             UnitRuntime unit = slot.TObj;
@@ -75,6 +81,23 @@ namespace Server.Core.Match
             _units.Add(id, unit);
             unit.CurrentCell = _worldGrid.SetUnitCell(fieldsRoute.StartPosition, id);
             _webSocket.SendCommand(CommandWs.SpawnUnit, (fieldsUnit.IndexUnit, id, team, playerIndex));
+        }
+
+        /// <summary>
+        /// <para>{EN} Tells the client to start an animation clip on the unit.</para>
+        /// {RU} Сообщает клиенту, что у юнита нужно запустить клип анимации.
+        /// </summary>
+        public void StartAnimationClip(int indexUnit, byte animationClip)
+        {
+            _commands.Enqueue(() => SendAnimationClip(indexUnit, animationClip));
+        }
+
+        private void SendAnimationClip(int indexUnit, byte animationClip)
+        {
+            if (!_units.ContainsKey(indexUnit))
+                return;
+
+            _webSocket.SendCommand(CommandWs.StartAnimationClip, (indexUnit, animationClip));
         }
 
         /// <summary>

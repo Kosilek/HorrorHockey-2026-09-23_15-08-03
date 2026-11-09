@@ -3,6 +3,7 @@ using Server.Core.Data;
 using Server.Core.Entity;
 using Server.Core.Enums;
 using Server.Core.Targets;
+using static UnityEngine.GraphicsBuffer;
 
 namespace Server.Core.Module.Entity
 {
@@ -46,7 +47,7 @@ namespace Server.Core.Module.Entity
             {
                 if (_radiusAttackSqr > distanceSqr)
                 {
-                    StatusUnit = StatusUnit.Attack;
+                   // StatusUnit = StatusUnit.Attack;
                 }
                 else
                 {
@@ -56,6 +57,21 @@ namespace Server.Core.Module.Entity
             }
 
             return false;
+        }
+
+        public void CheckDistanceToTarget(Vector2 positionUnit)
+        {
+            if (CurrentTarget == null)
+                return;
+
+            float distanceSqr = Vector2.DistanceSqr(
+                        positionUnit,
+                        CurrentTarget.Position);
+
+            if (_radiusAttackSqr > distanceSqr)
+            {
+            //    StatusUnit = StatusUnit.Attack;
+            }
         }
 
     }

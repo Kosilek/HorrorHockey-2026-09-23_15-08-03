@@ -1,4 +1,5 @@
 using _FM.DI;
+using ContractsServer.Transport;
 using FM.General.Core.Interfaces.Contracts;
 using Server.Core.Entity;
 using Server.Core.Interfaces;
@@ -9,6 +10,7 @@ using Server.Shared.Configurations;
 using Server.Shared.Core.Contracts;
 using Server.Shared.Core.Contracts.WebSocket;
 using Server.WebSocket.Service;
+using Server.WebSocket.Transport;
 using System;
 using UnityEngine;
 
@@ -31,6 +33,7 @@ namespace Server.Service.Register
             context.RegisterSingleton<ObjectPoolingConfiguration>(_objectPoolingService);
             context.RegisterSingleton<INavigationService, NavigationService>();
             context.RegisterSingleton<IMatchService, MatchService>();
+            context.RegisterSingleton<IServerToClientTransport, InProcessServerToClient>();
             context.RegisterSingleton<IWebSocketService, WebSocketService>();
             context.RegisterSingleton<Func<IWebSocketService>>(() => DiBootstrap.Instance.Resolve<IWebSocketService>());
 

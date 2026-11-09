@@ -1,3 +1,4 @@
+using Server.Core.Interfaces;
 using Server.Core.Targets;
 using System;
 
@@ -7,5 +8,6 @@ namespace Server.Core.Data
     {
         public Action<string, object> SendCommand { get; set; }
         public TargetSelector TargetSelector { get; set; }
+        public INavigationService NavigationService { get; set; }
     }
 }

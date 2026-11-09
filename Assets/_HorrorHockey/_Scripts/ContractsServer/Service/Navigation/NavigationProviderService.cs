@@ -99,6 +99,11 @@ return null;
             return BuildRoute(new[] { from, to });
         }
 
+        public bool IsWalkable(FMVector2 point)
+        {
+            return _bypass.IsWalkable(point);
+        }
+
         private static FMVector2[] Positions(BasicObjectData[] route)
         {
             if (route == null)

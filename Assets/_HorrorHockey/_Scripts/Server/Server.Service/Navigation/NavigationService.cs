@@ -53,6 +53,17 @@ namespace Server.Service.Navigation
             return controls != null && controls.Length >= 2;
         }
 
+        public bool TryBuildRoute(Vector2[] waypoints, out Vector2[] controls)
+        {
+            controls = _navigationProviderService.BuildRoute(waypoints);
+            return controls != null && controls.Length >= 2;
+        }
+
+        public bool IsWalkable(Vector2 point)
+        {
+            return _navigationProviderService.IsWalkable(point);
+        }
+
         public bool TryStart(int unitId, Vector2 start, Vector2[] controls)
         {
       //      var motion = new UnitRouteMotion();

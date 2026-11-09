@@ -45,14 +45,82 @@ namespace ContractsServer.Service.Navigation
                     if (source == null || source.Length < 3)
                         continue;
 
-                    contours.Add(new Contour(source, clearance));
+                    contours.Add(new Contour(obstacles[i].Name, source, clearance));
                 }
             }
 
             _contours = contours.ToArray();
+            LinkHoles(_contours, clearance);
         }
 
         public bool HasObstacles => _contours.Length > 0;
+
+        /// <summary>
+        /// <para>{EN} False if the point lies inside an obstacle inflated by the clearance. A loop inside another loop of the same object is a hole,
+        /// e.g. the field inside the fence, so only the ring between them blocks. Reads only immutable contours, so it is thread safe.</para>
+        /// {RU} false, если точка внутри препятствия, раздутого на зазор. Петля внутри другой петли того же объекта — дырка,
+        /// например поле внутри забора, поэтому блокирует только кольцо между ними. Читает только неизменяемые контуры, поэтому потокобезопасен.
+        /// </summary>
+        public bool IsWalkable(FMVector2 point)
+        {
+            V2 p = ToV2(point);
+            for (int i = 0; i < _contours.Length; i++)
+            {
+                Contour contour = _contours[i];
+                if (contour.IsHole || !InBounds(p, contour.Min, contour.Max) || !ContainsPoint(contour.Vertices, p))
+                    continue;
+                if (!InsideAnyHole(contour, p))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private bool InsideAnyHole(Contour contour, V2 point)
+        {
+            int[] holes = contour.Holes;
+            for (int h = 0; h < holes.Length; h++)
+            {
+                Contour hole = _contours[holes[h]];
+                if (InBounds(point, hole.WalkMin, hole.WalkMax) && ContainsPoint(hole.WalkVertices, point))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool InBounds(V2 point, V2 min, V2 max)
+        {
+            return point.X >= min.X && point.X <= max.X && point.Y >= min.Y && point.Y <= max.Y;
+        }
+
+        private static void LinkHoles(Contour[] contours, float clearance)
+        {
+            var holes = new List<int>();
+            for (int i = 0; i < contours.Length; i++)
+            {
+                Contour outer = contours[i];
+                holes.Clear();
+                for (int j = 0; j < contours.Length; j++)
+                {
+                    Contour inner = contours[j];
+                    if (i == j || inner.Name != outer.Name || inner.Raw.Length == 0)
+                        continue;
+                    if (ContainsPoint(outer.Raw, inner.Raw[0]))
+                        holes.Add(j);
+                }
+
+                if (holes.Count > 0)
+                    outer.Holes = holes.ToArray();
+            }
+
+            for (int i = 0; i < contours.Length; i++)
+            {
+                int[] linked = contours[i].Holes;
+                for (int h = 0; h < linked.Length; h++)
+                    contours[linked[h]].MarkHole(clearance);
+            }
+        }
 
         /// <summary>
         /// <para>{EN} Waypoints with bypass controls in between. Waypoints themselves are kept.</para>
@@ -763,8 +831,22 @@ namespace ContractsServer.Service.Navigation
             public readonly V2 RawMin;
             public readonly V2 RawMax;
 
-            public Contour(FMVector2[] source, float clearance)
+            public readonly string Name;
+
+            /// <summary>{EN} Loops of the same object inside this one. {RU} Петли того же объекта внутри этой.</summary>
+            public int[] Holes = System.Array.Empty<int>();
+
+            /// <summary>{EN} This loop is a hole of another one. {RU} Эта петля — дырка другой.</summary>
+            public bool IsHole { get; private set; }
+
+            /// <summary>{EN} Walkable side of a hole, shrunk by the clearance away from the wall. {RU} Проходимая часть дырки, сжатая на зазор от стены.</summary>
+            public V2[] WalkVertices { get; private set; }
+            public V2 WalkMin { get; private set; }
+            public V2 WalkMax { get; private set; }
+
+            public Contour(string name, FMVector2[] source, float clearance)
             {
+                Name = name ?? string.Empty;
                 Raw = new V2[source.Length];
                 for (int i = 0; i < source.Length; i++)
                     Raw[i] = new V2(source[i].X, source[i].Y);
@@ -772,6 +854,18 @@ namespace ContractsServer.Service.Navigation
                 Vertices = clearance > 0f ? Inflate(Raw, clearance) : Raw;
                 Bounds(Vertices, out Min, out Max);
                 Bounds(Raw, out RawMin, out RawMax);
+            }
+
+            public void MarkHole(float clearance)
+            {
+                if (IsHole)
+                    return;
+
+                IsHole = true;
+                WalkVertices = clearance > 0f ? Inflate(Raw, -clearance) : Raw;
+                Bounds(WalkVertices, out V2 min, out V2 max);
+                WalkMin = min;
+                WalkMax = max;
             }
 
             /// <summary>

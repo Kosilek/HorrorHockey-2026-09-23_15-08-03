@@ -6,5 +6,10 @@ namespace ContractsServer.Command
 
         public const string SpawnUnit = "SpawnUnit";
         public const string CreateRoute = "CreateRoute";
+        public const string SlowUnit = "SlowUnit";
+        public const string StunUnit = "StunUnit";
+        public const string UnstunUnit = "UnstunUnit";
+        public const string StopUnit = "StopUnit";
+        public const string StartAnimationClip = "StartAnimationClip";
     }
 }

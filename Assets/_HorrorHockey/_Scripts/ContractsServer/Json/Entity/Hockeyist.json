@@ -19,13 +19,15 @@
           "Y": 0
         },
         "KillRewards": [],
-        "BodyWidth": 0.5,
+        "BodyWidth": 1.0,
         "EntityType": "DynamicMelee",
         "IsSystemLocked": false,
         "IsHidden": false,
         "IsSelectable": true,
         "AccelTime": 1.0,
         "BrakeTime": 1.0,
+        "Mass": 1.0,
+        "StunTime": 2.0,
         "UnlockRequirements": {
           "RequiredLevel": 0,
           "Cost": 0
@@ -40,7 +42,7 @@
           { "TypeCharater": "Damage", "BaseValue": 10.0 },
           { "TypeCharater": "Health", "BaseValue": 100.0 },
           { "TypeCharater": "Defense", "BaseValue": 5.0 },
-          { "TypeCharater": "MovementSpeed", "BaseValue": 5.0 }
+          { "TypeCharater": "MovementSpeed", "BaseValue": 10.0 }
         ]
       },
       "UpgradeProfile": {

@@ -1,16 +1,17 @@
+using ContractsServer.BinaryProtocol;
 using ContractsServer.Command;
 using ContractsServer.Core.Enum;
+using ContractsServer.Transport;
 using Domain.Server.HTTP.Core.Interfaces;
 using Domain.Server.HTTP.Service;
 using Domain.Server.WebSocket.Core.Interfaces;
 using Domain.Server.WebSocket.Service;
 using FM.Mathematics.DataTypes;
-using Server.Shared.Core.Contracts.WebSocket;
 using Shared.Core.Contracts;
 using Shared.Core.Contracts.Server;
 using System;
 using System.Collections.Concurrent;
-using System.Net.WebSockets;
+using UnityEngine;
 using FmVector2 = FM.Mathematics.DataTypes.Vector2;
 
 namespace Domain.Server.Service
@@ -20,25 +21,31 @@ namespace Domain.Server.Service
         private readonly INetworkWSService _networkWS;
         private readonly INetworkHTTPService _networkHTTP;
 
-        private readonly IWebSocketService _webSocket;
+        private readonly IClientToServerTransport _toServer;
         private readonly IRuntimeService _runtime;
         
         public NetworkService(
             IRuntimeService runtime,
-            IWebSocketService webSocket)
+            IClientToServerTransport toServer)
         {
             _runtime = runtime;
-            _webSocket = webSocket;
+            _toServer = toServer;
 
             _networkWS = new NetworkWSService();
             _networkHTTP = new NetworkHTTPService();
         }
 
-        // Receive is called from the match thread, Unity objects can only be touched from the main one.
+        // The frame arrives from the match thread. Unity objects are touched later, in Dispatch.
         private readonly ConcurrentQueue<(string command, object data)> _received = new();
 
-        public void Receive(string command, object data)
+        public void ReceiveFrame(byte[] frame)
         {
+            if (!WsBinaryCodec.TryDecode(frame, out string command, out object data))
+            {
+                Debug.LogError("Binary decode failed on the client.");
+                return;
+            }
+
             _received.Enqueue((command, data));
         }
 
@@ -71,18 +78,39 @@ namespace Domain.Server.Service
                         _runtime.CreateRoute(routeData.Item1, routeData.Item2, routeData.Item3);
                     }
                     break;
+                case CommandWs.SlowUnit:
+                    if (data is ValueTuple<ushort, float> slowData)
+                        _runtime.SlowUnit(slowData.Item1, slowData.Item2);
+                    break;
+                case CommandWs.StunUnit:
+                    if (data is ushort stunId)
+                        _runtime.StunUnit(stunId);
+                    break;
+                case CommandWs.UnstunUnit:
+                    if (data is ushort unstunId)
+                        _runtime.UnstunUnit(unstunId);
+                    break;
+                case CommandWs.StopUnit:
+                    if (data is ushort stopId)
+                        _runtime.StopUnit(stopId);
+                    break;
+                case CommandWs.StartAnimationClip:
+                    if (data is ValueTuple<int, byte> animationData)
+                        _runtime.StartAnimationClip(animationData.Item1, animationData.Item2);
+                    break;
                 default: break;
             };
         }
 
         public void Send(string command, object data)
         {
-            switch (command)
+            if (!WsBinaryCodec.TryEncode(command, data, out byte[] frame))
             {
-                case CommandWs.SpawnUnit:
-                    _webSocket.ReceiveCommand(CommandWs.SpawnUnit, data);
-                    break;
+                Debug.LogError($"Binary encode failed on the client: {command}");
+                return;
             }
+
+            _toServer.SendFrame(frame);
         }
     }
 }

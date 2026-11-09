@@ -1,4 +1,5 @@
 using ContractsServer.Data;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -67,13 +68,21 @@ namespace Server.Core.Match
         public void LifeCycle()
         {
             CancellationToken token = Cancellation.Token;
-            int tickMs = Mathf.RoundToInt(GameConstants.DeltaTime * 1000f);
+            double tickMs = GameConstants.DeltaTime * 1000.0;
+            // Тик считает ровно DeltaTime, поэтому тики должны идти по часам, а не "тик + пауза".
+            // Иначе сервер отстаёт от реального времени, клиент уезжает вперёд и потом откатывается к серверной позиции.
+            Stopwatch clock = Stopwatch.StartNew();
+            double nextTickMs = 0.0;
 
             while (!token.IsCancellationRequested)
             {
                 Controller.Tick();
-                token.WaitHandle.WaitOne(tickMs);
                 // Логика симуляции матча
+
+                nextTickMs += tickMs;
+                int waitMs = (int)(nextTickMs - clock.Elapsed.TotalMilliseconds);
+                if (waitMs > 0)
+                    token.WaitHandle.WaitOne(waitMs);
             }
         }
     }

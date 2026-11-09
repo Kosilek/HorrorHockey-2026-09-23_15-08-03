@@ -2,7 +2,11 @@ namespace Shared.Core.Contracts.Server
 {
     public interface INetworkService
     {
-        void Receive(string command, object data);
+        /// <summary>
+        /// {RU} Принимает бинарный кадр от сервера. Разбор кадра и команды — внутри.
+        /// <para>{EN} Accepts a binary frame from the server. Decoding stays inside.</para>
+        /// </summary>
+        void ReceiveFrame(byte[] frame);
         void Send(string command, object data);
 
         /// <summary>

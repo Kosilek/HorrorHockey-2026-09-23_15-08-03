@@ -51,7 +51,6 @@ namespace FM.General.Core
                             _bootstrap.Add(instance);
                         }
                     }
-                    Debug.Log("Load Succes");
                 }
                 catch (ReflectionTypeLoadException)
                 {
