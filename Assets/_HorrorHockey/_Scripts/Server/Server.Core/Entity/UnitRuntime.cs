@@ -1,4 +1,5 @@
 using ContractsServer.Core.Enum;
+using ContractsServer.Data.Entity;
 using ContractsServer.Service.Navigation;
 using FM.Mathematics.DataTypes;
 using Server.Core.Enums;
@@ -14,6 +15,7 @@ namespace Server.Core.Entity
     {
         #region Component
         private UnitAggression _unitAggression;
+        private readonly UnitRouteMotion _routeMotion;
         private readonly Random _random;
         #endregion 
 
@@ -44,6 +46,12 @@ namespace Server.Core.Entity
 
         private int _currentTick = 0;
         private const int _maxTick = 4;
+
+        private float _maxHealth;
+        public float Health { get; private set; }
+        public float Defense { get; private set; }
+        public float Damage { get; private set; }
+        public EntityDataAttackClip[] EntityDataAttackClips { get; private set; }
         #endregion
 
         #region Fields Route
@@ -78,6 +86,7 @@ namespace Server.Core.Entity
 
         #region Fields Stun
         private int _stunCount;
+        private float _stunTimer;
 
         /// <summary>
         /// <para>{EN} True while at least one Stun is not lifted.</para>
@@ -88,6 +97,10 @@ namespace Server.Core.Entity
 
         private bool CanRebuildRoute => !IsCircling && !IsStunned;
 
+        // Сервер и клиент должны встать в одной точке, поэтому атака ждёт конца маршрута к радиусу атаки.
+        private bool IsDrivingToAttackRange => _chaseToAttackRange && _routeMotion.HasRoute
+            && _routeMotion.PathProgress < _routeMotion.PathLength - 1e-4f;
+
         /// <summary>
         /// <para>{EN} Same rule as Tick: in attack or dead the route is not advanced. An attack that starts as a charge keeps moving until the hit. A circle from that hit keeps moving until it ends.</para>
         /// {RU} То же правило, что в Tick: в атаке и после смерти маршрут не продвигается. Атака, начатая чарджем, едет до удара. Круг после этого удара едет, пока не закончится.
@@ -95,17 +108,13 @@ namespace Server.Core.Entity
         private bool CanMoveByRoute => _unitAggression.StatusUnit switch
         {
             StatusUnit.Die => false,
-            StatusUnit.Attack => _attackCharge || IsCircling,
+            StatusUnit.Attack => _attackCharge || IsCircling || IsDrivingToAttackRange,
             _ => true
         };
 
         #region Fields special
         private Action<string, object> _sendCommand;
         private INavigationService _navigationService;
-        #endregion
-
-        #region Component
-        private readonly UnitRouteMotion _routeMotion;
         #endregion
     }
 }

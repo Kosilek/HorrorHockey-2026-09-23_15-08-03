@@ -32,32 +32,13 @@ namespace Server.Core.Match
 
             UnitFieldsUnit fieldsUnit = new()
             {
-                IndexUnit = typeUnit,
-
-                MaxSpeed =
-                entityData.EntityDataCharacter.MovementSpeed
-                + entityData.UpgradeMatch.GetCurrentValueUpgrade(TypeCharater.MovementSpeed, -1)
-                + entityData.UpgradeProfile.GetCurrentValueUpgrade(TypeCharater.MovementSpeed, -1),
-
-                AttackRadius =
-                entityData.EntityDataCharacter.AttackRadius
-                + entityData.UpgradeMatch.GetCurrentValueUpgrade(TypeCharater.AttackRadius, -1)
-                + entityData.UpgradeProfile.GetCurrentValueUpgrade(TypeCharater.AttackRadius, -1),
-
-                DetectionRadius =
-                entityData.EntityDataCharacter.DetectionRadius
-                + entityData.UpgradeMatch.GetCurrentValueUpgrade(TypeCharater.DetectionRadius, -1)
-                + entityData.UpgradeProfile.GetCurrentValueUpgrade(TypeCharater.DetectionRadius, -1),
-
-                AccelTime = entityData.EntityDataMain.AccelTime,
-                BrakeTime = entityData.EntityDataMain.BrakeTime,
-                FuncUpdateCell = _worldGrid.UpdateUnitCell,
-
-                BodyWidth = entityData.EntityDataMain.BodyWidth,
-                Mass = entityData.EntityDataMain.Mass,
-
-                StunTime = entityData.EntityDataMain.StunTime
+                EntityDataMain = entityData.EntityDataMain,
+                EntityDataCharacter = entityData.EntityDataCharacter,
+                UpgradeProfile = entityData.UpgradeProfile,
+                UpgradeMatch = entityData.UpgradeMatch,
+                FuncUpdateCell = _worldGrid.UpdateUnitCell
             };
+
             TeamSide side = playerIndex >= PlayerIndex.RedLeft ? TeamSide.Red : TeamSide.Blue;
             _navigationService.TryGetRoute(side, LaneOf(playerIndex), out Vector2[] route);
 
@@ -80,7 +61,7 @@ namespace Server.Core.Match
 
             _units.Add(id, unit);
             unit.CurrentCell = _worldGrid.SetUnitCell(fieldsRoute.StartPosition, id);
-            _webSocket.SendCommand(CommandWs.SpawnUnit, (fieldsUnit.IndexUnit, id, team, playerIndex));
+            _webSocket.SendCommand(CommandWs.SpawnUnit, (fieldsUnit.EntityDataMain.Position, id, team, playerIndex));
         }
 
         /// <summary>

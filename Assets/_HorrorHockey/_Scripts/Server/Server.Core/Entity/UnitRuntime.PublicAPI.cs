@@ -3,7 +3,6 @@ using ContractsServer.Data;
 using ContractsServer.Service.Navigation;
 using Server.Core.Enums;
 using System;
-using System.Diagnostics;
 using FMVector2 = FM.Mathematics.DataTypes.Vector2;
 
 namespace Server.Core.Entity
@@ -11,7 +10,10 @@ namespace Server.Core.Entity
     public partial class UnitRuntime
     {
         private const float _defaultHorizon = 0.2f;
+        private const float _defaultTick = GameConstants.DeltaTime;
         private const float _approachOverlap = 0.01f;
+        // Конец погони чуть внутри радиуса атаки, чтобы проверка дистанции точно засчитала его.
+        private const float _attackRangeInset = 0.05f;
 
         private bool _ignoreContacts = false;
         private float _cooldownContacts = 0f;
@@ -22,12 +24,25 @@ namespace Server.Core.Entity
         // Первая атака по цели на бегу — чардж: юнит не встаёт, а доезжает до удара. Сбросится ударом или потерей скорости.
         private bool _attackCharge;
 
+        // Погоня после манёвра встаёт на радиусе атаки, а не едет до касания.
+        private bool _chaseToAttackRange;
+
         #region Public API
 
         public void Tick(float deltaTime)
         {
             if (_unitAggression.StatusUnit == StatusUnit.Die)
                 return;
+
+            if (_stunTimer > 0f)
+            {
+                _stunTimer -= deltaTime;
+                if (_stunTimer <= 0f)
+                {
+                    _stunTimer = 0f;
+                    Unstun();
+                }
+            }
 
             if (CanMoveByRoute && !IsStunned)
             {
@@ -48,6 +63,8 @@ namespace Server.Core.Entity
                 }
             }
 
+            ClipLoopAttack();
+
             if (_ignoreContacts)
             {
                 _cooldownContacts += 0.2f;
@@ -65,7 +82,7 @@ namespace Server.Core.Entity
             switch (_currentTick)
             {
                 case 0:
-                    TickMoveTarget();
+                    AggresiveTick();
                     break;
                 case 1:
 
@@ -75,6 +92,7 @@ namespace Server.Core.Entity
                     {
                         if (_unitAggression.CheckTarget(CurrentCell))
                         {
+                            _chaseToAttackRange = false;
                             StartAttackCharge();
                             FMVector2[] controls = new FMVector2[1];
                             controls[0] = GetApproachPoint(_unitAggression.CurrentTarget);
@@ -87,7 +105,7 @@ namespace Server.Core.Entity
                     }
                     break;
                 case 3:
-                    TickMoveTarget();
+                    AggresiveTick();
                     break;
                 case 4:
 
@@ -101,17 +119,38 @@ namespace Server.Core.Entity
             }
         }
 
+        private void AggresiveTick()
+        {
+            TickMoveTarget();
+            TickAttack();
+        }
+
         private void TickMoveTarget()
         {
             if (_unitAggression.StatusUnit != StatusUnit.MoveTarget || !CanRebuildRoute)
                 return;
 
+            if (!_unitAggression.HasTarget)
+            {
+                ResetTarget();
+                return;
+            }
+
+            // Дистанция проверяется каждый раз: к стоящей цели юнит доезжает без перестройки маршрута и должен перейти в атаку.
             UnitRuntime target = _unitAggression.CurrentTarget;
-            if (target == null || savePositionTarget == target.Position)
+            _unitAggression.CheckDistanceToTarget(Position);
+            if (_chaseToAttackRange)
+                _attackCharge = false;
+            else
+                StartAttackCharge();
+            if (savePositionTarget == target.Position)
                 return;
 
-            _unitAggression.CheckDistanceToTarget(Position);
-            StartAttackCharge();
+            if (_chaseToAttackRange)
+            {
+                TryStartAttackRangeRoute(target);
+                return;
+            }
 
             var controls = new FMVector2[1];
             controls[0] = GetApproachPoint(target);
@@ -119,25 +158,147 @@ namespace Server.Core.Entity
             SteerToTarget(controls, target);
         }
 
+        private void TickAttack()
+        {
+            UnityEngine.Debug.Log($"TickAttack. Id: {Id} _attackCharge: {_attackCharge} IsCircling: {IsCircling} _unitAggression.StatusUnit: {_unitAggression.StatusUnit}");
+            if (_unitAggression.StatusUnit == StatusUnit.Attack)
+            {
+                if (_attackCharge || IsCircling || IsDrivingToAttackRange)
+                    return;
+
+                // Между ударами: цель могла умереть или отойти, тогда атака на месте бессмысленна.
+                if (!_isStartAttackLoop)
+                {
+                    if (!_unitAggression.HasTarget)
+                    {
+                        ResetTarget();
+                        return;
+                    }
+
+                    _unitAggression.UpdateStatusByDistance(Position);
+                    if (_unitAggression.StatusUnit == StatusUnit.MoveTarget)
+                    {
+                        // Сброс заставит TickMoveTarget построить погоню.
+                        savePositionTarget = default;
+                        return;
+                    }
+                }
+
+                StartAttackLoop();
+            }
+        }
+
         // Погоня только выбирает, куда ехать. Само столкновение ловит MatchController для всех юнитов.
-        private void SteerToTarget(FMVector2[] controls, UnitRuntime target)
+        private bool SteerToTarget(FMVector2[] controls, UnitRuntime target)
         {
             if (IsRunning() && TryFindMovingContact(target, _defaultHorizon, out FMVector2 selfCenter, out _))
                 controls[0] = selfCenter;
 
-            TryStartMovingRoute(controls);
+            return TryStartMovingRoute(controls);
         }
+
+        #region Target
+        public StatusUnit Status => _unitAggression.StatusUnit;
+        public UnitRuntime CurrentTarget => _unitAggression.CurrentTarget;
+
+        /// <summary>
+        /// <para>{EN} True while the target is set and alive.</para>
+        /// {RU} true, пока цель задана и жива.
+        /// </summary>
+        public bool HasTarget => _unitAggression.HasTarget;
+
+        /// <summary>
+        /// <para>{EN} Every status change of this unit: unit, previous status, new status.</para>
+        /// {RU} Каждая смена статуса этого юнита: юнит, прежний статус, новый статус.
+        /// </summary>
+        public event Action<UnitRuntime, StatusUnit, StatusUnit> StatusChanged;
+
+        /// <summary>
+        /// <para>{EN} Goes for the current target right now without a charge: attacks in place inside the attack radius,
+        /// otherwise drives to the attack radius, brakes there and attacks. The chase keeps stopping at the attack radius
+        /// until the target is reset, a new one is found or a contact happens. Without a live target the target is reset.
+        /// False when nothing started: no target, dead, stunned or in a maneuver.</para>
+        /// {RU} Сразу идёт на текущую цель без чарджа: в радиусе атаки бьёт на месте, иначе доезжает до радиуса атаки,
+        /// тормозит там и бьёт. Погоня и дальше встаёт на радиусе атаки, пока цель не сброшена, не найдена новая или не случился контакт.
+        /// Без живой цели цель сбрасывается. false, если ничего не началось: нет цели, мёртв, в стане или в манёвре.
+        /// </summary>
+        public bool EngageTarget()
+        {
+            if (IsDead || !CanRebuildRoute)
+                return false;
+
+            if (!_unitAggression.HasTarget)
+            {
+                ResetTarget(returnToLane: false);
+                return false;
+            }
+
+            _attackCharge = false;
+            _unitAggression.UpdateStatusByDistance(Position);
+            if (_unitAggression.StatusUnit == StatusUnit.Attack)
+            {
+                _chaseToAttackRange = false;
+                StartAttackLoop();
+                return true;
+            }
+
+            _chaseToAttackRange = TryStartAttackRangeRoute(_unitAggression.CurrentTarget);
+            return _chaseToAttackRange;
+        }
+
+        /// <summary>
+        /// <para>{EN} Forgets the target: Idle, no charge, the attack clip stops. With returnToLane the unit goes back to the lane loop, if it may rebuild the route now.</para>
+        /// {RU} Забывает цель: Idle, без чарджа, клип атаки останавливается. При returnToLane юнит возвращается к циклу по полосе, если сейчас может перестроить маршрут.
+        /// </summary>
+        public void ResetTarget(bool returnToLane = true)
+        {
+            _unitAggression.ClearTarget();
+            _attackCharge = false;
+            _chaseToAttackRange = false;
+            StopAttackClip();
+            savePositionTarget = default;
+
+            if (returnToLane && CanRebuildRoute && !IsDead)
+                FollowBaseRoute();
+        }
+
+        private void OnStatusChanged(StatusUnit previous, StatusUnit status)
+        {
+            StatusChanged?.Invoke(this, previous, status);
+        }
+
+        // Тормозит в конце, чтобы встать на радиусе атаки, а не проехать его с текущей скоростью.
+        private bool TryStartAttackRangeRoute(UnitRuntime target)
+        {
+            float bodyGap = (BodyWidth + target.BodyWidth) * 0.5f - _approachOverlap;
+            float range = MathF.Max(bodyGap, _unitAggression.AttackRadius - _attackRangeInset);
+            var controls = new FMVector2[] { GetApproachPoint(target, range) };
+            if (!TryBeginRoute(controls, stopAtEnd: true, _routeMotion.CurrentSpeed))
+                return false;
+
+            savePositionTarget = target.Position;
+            _followBaseRoute = false;
+            _sendCommand.Invoke(CommandWs.CreateRoute, (Id, RouteStart, controls, true, _routeMotion.CurrentSpeed));
+            return true;
+        }
+        #endregion
 
         // Конец маршрута погони — не центр цели, а точка на сумме радиусов от него со стороны юнита.
         // Чуть внутрь, чтобы касание засчиталось, когда юнит встанет в конце маршрута.
         private FMVector2 GetApproachPoint(UnitRuntime target)
+        {
+            return GetApproachPoint(target, (BodyWidth + target.BodyWidth) * 0.5f - _approachOverlap);
+        }
+
+        // Точка на расстоянии gap от центра цели со стороны юнита.
+        private FMVector2 GetApproachPoint(UnitRuntime target, float gap)
         {
             FMVector2 from = Position;
             FMVector2 to = target.Position;
             float dx = from.X - to.X;
             float dy = from.Y - to.Y;
             float distance = MathF.Sqrt(dx * dx + dy * dy);
-            float gap = MathF.Max(0f, (BodyWidth + target.BodyWidth) * 0.5f - _approachOverlap);
+            gap = MathF.Max(0f, gap);
             if (distance <= gap || distance <= 1e-5f)
                 return from;
 
@@ -212,7 +373,6 @@ namespace Server.Core.Entity
         {
             //if (radius <= 1e-3f || laps < 1 || _navigationService == null)
             //    return false;
-            UnityEngine.Debug.Log("Start Cicle");
             if (!TryGetForward(out FMVector2 forward))
                 return false;
 
@@ -221,7 +381,6 @@ namespace Server.Core.Entity
 
         private bool TryStartCircle(float radius, FMVector2 forward, int laps = 1, Action onStart = null, Action onComplete = null, bool clockwise = true)
         {
-            UnityEngine.Debug.Log($"Validation Cicle unit {Id} forward ({forward.X:0.00}, {forward.Y:0.00}) clockwise {clockwise}");
 
             FMVector2 position = Position;
             // Справа от курса — (forward.Y, -forward.X), если смотреть сверху.
@@ -247,18 +406,14 @@ namespace Server.Core.Entity
 
             if (kept < 3)
                 {
-                UnityEngine.Debug.Log($"Validation Cicle 2 false kept: {kept}");
                 return false; }
-            UnityEngine.Debug.Log("Validation Cicle 2");
             if (kept < waypoints.Length)
                 Array.Resize(ref waypoints, kept);
 
             if (!_navigationService.TryBuildRoute(waypoints, out FMVector2[] controls))
                { return false; }
-            UnityEngine.Debug.Log("Validation Cicle 3");
             if (!TryBeginRoute(controls, stopAtEnd: false, _routeMotion.CurrentSpeed))
                 { return false; }
-            UnityEngine.Debug.Log("Validation Cicle 4");
 
             _followBaseRoute = false;
             _circleControls = controls;
@@ -377,6 +532,25 @@ namespace Server.Core.Entity
         }
 
         /// <summary>
+        /// <para>{EN} Stun that lifts itself after duration seconds. A new timed stun while one is running does not stack, it only extends the time to the longer one.</para>
+        /// {RU} Стан, который сам снимается через duration секунд. Новый стан по времени поверх текущего не складывается, а только продлевает время до большего.
+        /// </summary>
+        public void Stun(float duration)
+        {
+            if (duration <= 0f)
+                return;
+
+            if (_stunTimer > 0f)
+            {
+                _stunTimer = MathF.Max(_stunTimer, duration);
+                return;
+            }
+
+            _stunTimer = duration;
+            Stun();
+        }
+
+        /// <summary>
         /// <para>{EN} Lifts one Stun. After the last one the unit continues its route with the usual accel.
         /// With keepRoute false the route, the circle and the lane loop are dropped, so the unit stands without orders.</para>
         /// {RU} Снимает один Stun. После последнего юнит продолжает свой маршрут обычным разгоном.
@@ -393,6 +567,7 @@ namespace Server.Core.Entity
             if (--_stunCount > 0)
                 return;
 
+            _stunTimer = 0f;
             _routeMotion.Resume();
             _sendCommand.Invoke(CommandWs.UnstunUnit, Id);
         }
@@ -439,7 +614,6 @@ namespace Server.Core.Entity
 
         private void DropOrders()
         {
-            UnityEngine.Debug.Log("DropOrders");
             ResetCircle();
             _followBaseRoute = false;
             _routeMotion.Stop();
@@ -450,10 +624,11 @@ namespace Server.Core.Entity
         private void FinishCircle()
         {
             Action onComplete = _circleComplete;
+            FMVector2[] finished = RouteControls;
             ResetCircle();
-            // onComplete может сразу начать следующий манёвр с текущей скоростью и курсом, поэтому полоса — только если не начал.
+            // onComplete может сразу начать следующий манёвр или погоню, поэтому полоса — только если маршрут не сменился.
             onComplete?.Invoke();
-            if (!IsCircling)
+            if (ReferenceEquals(RouteControls, finished))
                 FollowBaseRoute();
         }
 

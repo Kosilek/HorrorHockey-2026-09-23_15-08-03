@@ -18,6 +18,11 @@ namespace Server.Core.Entity
         // Пара, чей контакт уже разобран. Пока тела не разошлись, новое касание той же пары не планируется.
         private UnitRuntime _contactPartner;
 
+        // Исход броска падения по этой паре. Считается один раз: второй юнит читает готовое, а не бросает заново.
+        private bool _fallReady;
+        private UnitRuntime _fallPartner;
+        private bool _fell;
+
         /// <summary>
         /// <para>{EN} True while the body moves this tick by its route.</para>
         /// {RU} true, пока тело в этом тике едет по маршруту.
@@ -71,6 +76,7 @@ namespace Server.Core.Entity
             _contactWith = other;
             _contactTime = time;
             _contactRollsFall = rollFall;
+            _fallReady = false;
             _contactHasForward = TryGetForward(out _contactForward);
             _contactClockwise = IsHitFromLeft(other);
 
@@ -83,8 +89,8 @@ namespace Server.Core.Entity
         }
 
         /// <summary>
-        /// <para>{EN} After the move of the planned tick. The one hit by a charge rolls once: a fall stops, a miss starts a circle. The pair is closed until the bodies separate.</para>
-        /// {RU} После движения запланированного тика. Тот, в кого врезался бегущий, бросает один раз: падение останавливает, промах запускает круг. Пара закрыта, пока тела не разошлись.
+        /// <para>{EN} After the move of the planned tick. A fall drops orders. Whoever stays up circles only when the other one fell. The pair is closed until the bodies separate.</para>
+        /// {RU} После движения запланированного тика. Падение сбрасывает приказы. Устоявший идёт по кругу, только если упал второй. Пара закрыта, пока тела не разошлись.
         /// </summary>
         public void ResolveContact()
         {
@@ -97,17 +103,32 @@ namespace Server.Core.Entity
 
             _ignoreContacts = true;
             _attackCharge = false;
+            _chaseToAttackRange = false;
             _contactPartner = other;
             if (!_contactRollsFall)
                 return;
 
-            if (RollFall(other))
-                DropOrders();
-            else if (_contactHasForward)
-                TryStartCircle(2.5f, _contactForward, onComplete: () => TryStartTurnBack(), clockwise: _contactClockwise);
-            else
-                TryStartCircle(2.5f, onComplete: () => TryStartTurnBack(), clockwise: _contactClockwise);
+            // otherFell — упал ли второй от этой же пары. Круг только у того, кто сам устоял, и только если упал второй.
+            bool isFall = RollFall(other, out bool otherFell);
+            if (isFall)
+                Stun(StunTime);
+            else if (otherFell)
+            {
+                if (_contactHasForward)
+                    TryStartCircle(2.5f, _contactForward, onComplete: TurnBackThenEngage, clockwise: _contactClockwise);
+                else
+                    TryStartCircle(2.5f, onComplete: TurnBackThenEngage, clockwise: _contactClockwise);
+            }
         }
+
+        // Разворот может не построиться у стены — тогда на цель идём сразу с конца круга.
+        private void TurnBackThenEngage()
+        {
+            if (!TryStartTurnBack(onComplete: () => EngageTarget()))
+                EngageTarget();
+        }
+
+
 
         // Удар слева уводит круг вправо, то есть по часовой: центр круга всегда с дальней от другого стороны.
         // Почти лобовой удар решается одинаково для обоих в паре — одно направление на встречных курсах даёт восьмёрку.
@@ -158,16 +179,53 @@ namespace Server.Core.Entity
             return dx * dx + dy * dy <= radius * radius;
         }
 
-        private bool RollFall(UnitRuntime other)
+        // Бросок этого юнита и исход второго по той же паре. Второй ещё не разобран — его бросок считается здесь и сохраняется ему.
+        private bool RollFall(UnitRuntime other, out bool otherFell)
         {
-            float totalMass = Mass + other.Mass;
-            if (totalMass <= 0f)
+            bool isFall = RollOwnFall(other);
+            otherFell = other.PeekFall(this);
+            return isFall;
+        }
+
+        private bool RollOwnFall(UnitRuntime partner)
+        {
+            if (_fallReady && ReferenceEquals(_fallPartner, partner))
+                return _fell;
+
+            return StoreFall(partner);
+        }
+
+        // true, если этот юнит падает от контакта с partner. Чужой контакт и отсутствие броска оставляют его на ногах.
+        private bool PeekFall(UnitRuntime partner)
+        {
+            if (_fallReady && ReferenceEquals(_fallPartner, partner))
+                return _fell;
+
+            // Игнор закрывает новые контакты. Уже посчитанный исход читается веткой выше:
+            // свой ResolveContact включает его до того, как партнёр спросит результат.
+            if (_ignoreContacts)
                 return false;
 
-            float fallChance = other.Mass / totalMass;
-            bool isFall = _random.NextDouble() < fallChance;
-            UnityEngine.Debug.Log($"isFall {isFall}");
-            return isFall;
+            if (_contactRollsFall && ReferenceEquals(_contactWith, partner))
+                return StoreFall(partner);
+
+            return false;
+        }
+
+        private bool StoreFall(UnitRuntime partner)
+        {
+            _fallPartner = partner;
+            _fallReady = true;
+
+            float totalMass = Mass + partner.Mass;
+            if (totalMass <= 0f)
+            {
+                _fell = false;
+                return false;
+            }
+
+            _fell = _random.NextDouble() < partner.Mass / totalMass;
+            return _fell;
         }
     }
 }
