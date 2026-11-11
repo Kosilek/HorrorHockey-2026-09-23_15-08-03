@@ -7,6 +7,7 @@ using Server.Core.Interfaces;
 using Server.Core.Module.Entity;
 using Server.Shared.Configurations;
 using System;
+using System.Collections.Generic;
 using FMVector2 = FM.Mathematics.DataTypes.Vector2;
 
 namespace Server.Core.Entity
@@ -95,7 +96,8 @@ namespace Server.Core.Entity
         public bool IsStunned => _stunCount > 0;
         #endregion
 
-        private bool CanRebuildRoute => !IsCircling && !IsStunned;
+        // Запланированное касание держит маршрут, обрезанный точкой касания, до своего разбора.
+        private bool CanRebuildRoute => !IsCircling && !IsStunned && _contactWith == null;
 
         // Сервер и клиент должны встать в одной точке, поэтому атака ждёт конца маршрута к радиусу атаки.
         private bool IsDrivingToAttackRange => _chaseToAttackRange && _routeMotion.HasRoute
@@ -115,6 +117,8 @@ namespace Server.Core.Entity
         #region Fields special
         private Action<string, object> _sendCommand;
         private INavigationService _navigationService;
+        private Func<int, List<UnitRuntime>> _getUnitsByTarget;
+        private Action<UnitRuntime, UnitRuntime, UnitRuntime> _targetChanged;
         #endregion
     }
 }

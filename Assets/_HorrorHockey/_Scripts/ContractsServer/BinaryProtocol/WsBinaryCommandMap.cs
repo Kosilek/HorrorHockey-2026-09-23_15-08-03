@@ -14,6 +14,7 @@ namespace ContractsServer.BinaryProtocol
             [CommandWs.UnstunUnit] = BinaryMessageType.UnstunUnit,
             [CommandWs.StopUnit] = BinaryMessageType.StopUnit,
             [CommandWs.StartAnimationClip] = BinaryMessageType.StartAnimationClip,
+            [CommandWs.SetTarget] = BinaryMessageType.SetTarget,
         };
 
         private static readonly Dictionary<BinaryMessageType, string> TypeToCommand = BuildTypeToCommand();

@@ -43,7 +43,13 @@ namespace ContractsServer.BinaryProtocol
         StopUnit = 8,
 
         /// <summary>{RU} Сервер → клиент. <c>unitId i32, clip u8</c>.<para>{EN} Server to client.</para></summary>
-        StartAnimationClip = 9
+        StartAnimationClip = 9,
+
+        /// <summary>
+        /// {RU} Сервер → клиент. <c>unitId u16, targetId i32</c>. <c>-1</c> — цели нет.
+        /// <para>{EN} Server to client. The unit's target, -1 for none.</para>
+        /// </summary>
+        SetTarget = 10
     }
 
     public static class BinaryMessageTypeExtensions
@@ -59,6 +65,7 @@ namespace ContractsServer.BinaryProtocol
             BinaryMessageType.UnstunUnit => 7,
             BinaryMessageType.StopUnit => 8,
             BinaryMessageType.StartAnimationClip => 9,
+            BinaryMessageType.SetTarget => 10,
             _ => throw new ArgumentException($"Invalid binary message type: {type}")
         };
 
@@ -73,6 +80,7 @@ namespace ContractsServer.BinaryProtocol
             7 => BinaryMessageType.UnstunUnit,
             8 => BinaryMessageType.StopUnit,
             9 => BinaryMessageType.StartAnimationClip,
+            10 => BinaryMessageType.SetTarget,
             _ => throw new ArgumentException($"Invalid binary message type byte: {value}")
         };
 

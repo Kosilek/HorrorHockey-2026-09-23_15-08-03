@@ -17,7 +17,7 @@ namespace Server.Core.Module.Entity
         #region Fields Unit 
         private int _id;
         private float _radiusDetection;
-        private float _radiusAttackSqr;
+        private float _bodyWidth;
         public float AttackRadius { get; private set; }
         #endregion
 
@@ -39,6 +39,12 @@ namespace Server.Core.Module.Entity
         /// </summary>
         public event Action<StatusUnit, StatusUnit> StatusChanged;
 
+        /// <summary>
+        /// <para>{EN} Every target change goes through here: previous target, new target. Either may be null.</para>
+        /// {RU} Через него проходит каждая смена цели: прежняя цель, новая цель. Любая может быть null.
+        /// </summary>
+        public event Action<UnitRuntime, UnitRuntime> TargetChanged;
+
         public UnitAggression(
             TargetSelector targetSelector,
             UnitAggressionData unitAggressionData)
@@ -48,7 +54,28 @@ namespace Server.Core.Module.Entity
             _id = unitAggressionData.Id;
             _radiusDetection = unitAggressionData.DetectionRadius;
             AttackRadius = unitAggressionData.AttackRadius;
-            _radiusAttackSqr = AttackRadius * AttackRadius;
+            _bodyWidth = unitAggressionData.BodyWidth;
+        }
+
+        /// <summary>
+        /// <para>{EN} Attack reach to this target between centers: the attack radius plus the mean body width of the unit and the target,
+        /// so the radius counts from the body edges. Every attack distance check and every attack place uses it.</para>
+        /// {RU} Дальность атаки до этой цели между центрами: радиус атаки плюс средняя ширина тел юнита и цели,
+        /// то есть радиус считается от краёв тел. Через неё идут все проверки дистанции атаки и выбор места для атаки.
+        /// </summary>
+        public float GetAttackReach(UnitRuntime target)
+        {
+            return AttackRadius + (_bodyWidth + target.BodyWidth) * 0.5f;
+        }
+
+        /// <summary>
+        /// <para>{EN} True if from this point the unit reaches the target by GetAttackReach.</para>
+        /// {RU} true, если из этой точки юнит достаёт цель по GetAttackReach.
+        /// </summary>
+        public bool IsInAttackReach(Vector2 positionUnit, UnitRuntime target)
+        {
+            float reach = GetAttackReach(target);
+            return reach * reach > Vector2.DistanceSqr(positionUnit, target.Position);
         }
 
         public void SetStatusUnit(StatusUnit statusUnit)
@@ -65,13 +92,14 @@ namespace Server.Core.Module.Entity
                 out UnitRuntime target,
                 out float distanceSqr))
             {
-                _currentTarget = target;
-                SetStatus(_radiusAttackSqr > distanceSqr ? StatusUnit.Attack : StatusUnit.MoveTarget);
+                SetTarget(target);
+                float reach = GetAttackReach(target);
+                SetStatus(reach * reach > distanceSqr ? StatusUnit.Attack : StatusUnit.MoveTarget);
                 return true;
             }
 
             // Неудачный поиск может вернуть юнита вне радиуса — это не цель.
-            _currentTarget = null;
+            SetTarget(null);
             return false;
         }
 
@@ -103,13 +131,23 @@ namespace Server.Core.Module.Entity
         /// </summary>
         public void ClearTarget()
         {
-            _currentTarget = null;
+            SetTarget(null);
             SetStatus(StatusUnit.Idle);
+        }
+
+        private void SetTarget(UnitRuntime target)
+        {
+            if (ReferenceEquals(_currentTarget, target))
+                return;
+
+            UnitRuntime previous = _currentTarget;
+            _currentTarget = target;
+            TargetChanged?.Invoke(previous, target);
         }
 
         private bool IsInAttackRadius(Vector2 positionUnit)
         {
-            return _radiusAttackSqr > Vector2.DistanceSqr(positionUnit, _currentTarget.Position);
+            return IsInAttackReach(positionUnit, _currentTarget);
         }
 
         private void SetStatus(StatusUnit status)

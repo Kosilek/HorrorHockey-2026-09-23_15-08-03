@@ -98,6 +98,10 @@ namespace Domain.Server.Service
                     if (data is ValueTuple<int, byte> animationData)
                         _runtime.StartAnimationClip(animationData.Item1, animationData.Item2);
                     break;
+                case CommandWs.SetTarget:
+                    if (data is ValueTuple<ushort, int> targetData)
+                        _runtime.SetTarget(targetData.Item1, targetData.Item2);
+                    break;
                 default: break;
             };
         }

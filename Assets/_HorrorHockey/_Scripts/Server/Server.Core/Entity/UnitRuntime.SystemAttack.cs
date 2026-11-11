@@ -1,4 +1,4 @@
-﻿using ContractsServer.Data.Entity;
+using ContractsServer.Data.Entity;
 using FM.Mathematics.DataTypes;
 using Server.Core.Enums;
 using System;
@@ -15,10 +15,10 @@ namespace Server.Core.Entity
         {
             if (_isStartAttackLoop)
                 return;
-            UnityEngine.Debug.Log("StartAttackLoop");
             _isStartAttackLoop = true;
             _entityDataAttackClip = GetCurrentClip();
             _currentTimeClip = 0;
+            StartAnimationClip((byte)StateAnimation.Attack);
             ClipLoopAttack();
         }
 
@@ -57,29 +57,45 @@ namespace Server.Core.Entity
 
         private void ClipLoopAttack()
         {
-            UnityEngine.Debug.Log($"ClipLoopAttack. Id {Id}. _isStartAttackLoop {_isStartAttackLoop}. _currentTimeClip {_currentTimeClip} _entityDataAttackClip?.Duration {_entityDataAttackClip?.Duration}. _entityDataAttackClip?.TickDamage {_entityDataAttackClip?.TickDamage}");
-            if (!_isStartAttackLoop)
+            if (!_isStartAttackLoop || _entityDataAttackClip == null)
                 return;
 
-            if (_currentTimeClip >= _entityDataAttackClip?.Duration)
-            {
-                StopAttackClip();
-            }
+            float duration = _entityDataAttackClip.Duration;
+            if (duration <= 0f)
+                return;
 
-            if (_currentTimeClip < _entityDataAttackClip?.TickDamage + 0.1 && _currentTimeClip > _entityDataAttackClip?.TickDamage - 0.1f)
-            {
+            float previous = _currentTimeClip;
+            float next = previous + _defaultTick;
+            if (CrossedDamageTick(previous, next, _entityDataAttackClip.TickDamage, duration))
                 _unitAggression.CurrentTarget?.TakeDamage(Damage);
+
+            if (next < duration)
+            {
+                _currentTimeClip = next;
+                return;
             }
 
-            _currentTimeClip += _defaultTick;
+            _currentTimeClip = next - duration;
+            StartAnimationClip((byte)StateAnimation.Attack);
+        }
+
+        // Один удар за цикл. Попадание считается и на шаге, который перешагивает конец клипа.
+        private static bool CrossedDamageTick(float previous, float next, float hit, float duration)
+        {
+            if (hit < 0f || hit > duration)
+                return false;
+
+            if (next < duration)
+                return previous < hit && next >= hit || hit == 0f && previous == 0f;
+
+            return previous < hit || next - duration >= hit;
         }
 
         public bool TakeDamage(float damage)
         {
             Health -= damage;
 
-            UnityEngine.Debug.Log($"TakeDamage. Id: {Id}. Health {Health}");
-
+            UnityEngine.Debug.Log($"TakeDamage. Id: {Id}. Health: {Health}");
             if (Health <= 0)
             {
                 _unitAggression.SetStatusUnit(StatusUnit.Die);

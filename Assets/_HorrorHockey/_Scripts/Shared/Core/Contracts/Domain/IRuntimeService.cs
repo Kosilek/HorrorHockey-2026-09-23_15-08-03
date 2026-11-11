@@ -14,5 +14,6 @@ namespace Shared.Core.Contracts
         void UnstunUnit(ushort indexUnit);
         void StopUnit(ushort indexUnit);
         void StartAnimationClip(int indexUnit, byte animationClip);
+        void SetTarget(ushort indexUnit, int indexTarget);
     }
 }

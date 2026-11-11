@@ -115,6 +115,11 @@ namespace ContractsServer.BinaryProtocol
                     MatchBinaryCodec.WriteAnimation(writer, clip.Item1, clip.Item2);
                     return true;
 
+                case CommandWs.SetTarget when data is ValueTuple<ushort, int> target:
+                    MatchEnvelope.WriteHeader(writer, BinaryMessageType.SetTarget);
+                    MatchBinaryCodec.WriteTarget(writer, target.Item1, target.Item2);
+                    return true;
+
                 default:
                     return false;
             }
@@ -140,6 +145,8 @@ namespace ContractsServer.BinaryProtocol
                     return MatchBinaryCodec.ReadUnit(reader);
                 case BinaryMessageType.StartAnimationClip:
                     return MatchBinaryCodec.ReadAnimation(reader);
+                case BinaryMessageType.SetTarget:
+                    return MatchBinaryCodec.ReadTarget(reader);
                 default:
                     throw new ArgumentException($"Unsupported message type: {messageType}");
             }

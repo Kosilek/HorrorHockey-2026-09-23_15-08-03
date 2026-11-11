@@ -1,6 +1,10 @@
+using Codice.Client.BaseCommands;
 using ContractsServer.Data;
 using ContractsServer.Service.Navigation;
 using Domain.Game.Core.Entity;
+using PlasticPipe.PlasticProtocol.Server.Stubs;
+using Server.Core.Enums;
+using Shared.Core.Contracts;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityLife.Game.Entity.Animations;
@@ -29,15 +33,24 @@ namespace UnityLife.Game.Entity.Navigations
         [Header("Server sync")]
         [Tooltip("Как быстро тело плавно доезжает до серверной позиции, если разошлось с ней. Больше — быстрее.")]
         [SerializeField, Min(0.1f)] private float _correctionSharpness = 6f;
+        [Header("Face target")]
+        [Tooltip("За сколько метров до конца маршрута с остановкой корпус начинает доворачиваться к цели. Стоя смотрит на неё всегда.")]
+        [SerializeField, Min(0f)] private float _faceTargetDistance = 1.5f;
 
         private Animator _animator;
         private Vector2 _visualOffset;
+        private IEntityMovemet _target;
 
         private const float TurnEndAngle = 0.75f;
-        private const string MoveParam = "Move";
-        private const string StopParam = "Stop";
-        private const string LeftParam = "Left";
-        private const string RightParam = "Right";
+        private const int MoveIndex = 0;
+        private const int StopIndex = 1;
+        private const int LeftIndex = 2;
+        private const int RightIndex = 3;
+        private const int AttackIndex = 4;
+        private const int IdleIndex = 5;
+        private const int FallIndex = 6;
+        private const int DeathIndex = 7;
+        private static readonly string[] TriggerNames = { "Move", "Stop", "Left", "Right", "Attack", "Idle", "Fall", "Death" };
 
         private readonly UnitRouteMotion _motion = new();
         private float _groundHeight;
@@ -50,10 +63,13 @@ namespace UnityLife.Game.Entity.Navigations
         private int _alignSide;
         private bool _animReady;
         private EntityId _animatorId;
-        private AnimTrigger _moveAnim;
-        private AnimTrigger _stopAnim;
-        private AnimTrigger _leftAnim;
-        private AnimTrigger _rightAnim;
+        private AnimTrigger[] _triggers = System.Array.Empty<AnimTrigger>();
+        private bool _clipLock;
+        private bool _clipEntered;
+        private bool _clipLoops;
+        private bool _clipRestart;
+        private int _clipStateHash;
+        private int _stateAtPlay;
 
         /// <summary>
         /// <para>{EN} True while the march is running.</para>
@@ -85,6 +101,8 @@ namespace UnityLife.Game.Entity.Navigations
         /// </summary>
         public float PathLength => _motion.PathLength;
 
+        public bool IsStun { get; private set; }
+
         public void Initialize(Animator animator)
         {
             _animator = animator;
@@ -110,6 +128,15 @@ namespace UnityLife.Game.Entity.Navigations
         }
 
         /// <summary>
+        /// <para>{EN} Server route with braking that the unit enters on the run: starts at startSpeed and keeps the tilt, brakes at the end.</para>
+        /// {RU} Маршрут с сервера с торможением, в который юнит входит на ходу: стартует со скоростью startSpeed и сохраняет наклон, в конце тормозит.
+        /// </summary>
+        public void StartMovement(FMVector2 start, FMVector2[] controls, float startSpeed)
+        {
+            Begin(start, controls, stopAtEnd: true, startSpeed);
+        }
+
+        /// <summary>
         /// <para>{EN} Server route without braking. Enters at startSpeed and keeps its speed and tilt. Slides onto the curve smoothly like StartMovement.</para>
         /// {RU} Маршрут с сервера без торможения. Входит со скоростью startSpeed и сохраняет скорость и наклон. На кривую съезжает плавно, как StartMovement.
         /// </summary>
@@ -119,20 +146,43 @@ namespace UnityLife.Game.Entity.Navigations
         }
 
         /// <summary>
-        /// <para>{EN} Plays the clip at this index in the animator controller, from the start.</para>
-        /// {RU} Проигрывает клип с этим индексом в контроллере аниматора, с начала.
+        /// <para>{EN} Plays this clip from the start. Attack, Idle, Fall and Death hold the body until the clip ends or a new route replaces them.</para>
+        /// {RU} Проигрывает этот клип с начала. Attack, Idle, Fall и Death держат тело, пока клип не кончится или его не сменит новый маршрут.
         /// </summary>
         public void StartAnimationClip(byte animationClip)
         {
             EnsureAnim();
-            if (_animator == null || _animator.runtimeAnimatorController == null)
+            if (_animator == null)
                 return;
 
-            AnimationClip[] clips = _animator.runtimeAnimatorController.animationClips;
-            if (animationClip >= clips.Length)
+            int index = MappingAnimationClip((StateAnimation)animationClip);
+            if (!_triggers[index].Exists)
                 return;
 
-            _animator.Play(clips[animationClip].name, 0, 0f);
+            if (HoldsLocomotion(index))
+                ArmClip();
+            else
+                ReleaseClip();
+
+            Play(index, restart: true);
+        }
+
+        private int MappingAnimationClip(StateAnimation state)
+        {
+            return state switch
+            {
+                StateAnimation.Attack => AttackIndex,
+                StateAnimation.Move => MoveIndex,
+                StateAnimation.Idle => IdleIndex,
+                StateAnimation.Fall => FallIndex,
+                StateAnimation.Death => DeathIndex,
+                _ => IdleIndex,
+            };
+        }
+
+        private static bool HoldsLocomotion(int index)
+        {
+            return index is AttackIndex or IdleIndex or FallIndex or DeathIndex;
         }
 
         /// <summary>
@@ -154,6 +204,7 @@ namespace UnityLife.Game.Entity.Navigations
             _isStopping = false;
             _turnSide = 0;
             ApplyAnim();
+            IsStun = true;
         }
 
         /// <summary>
@@ -162,9 +213,21 @@ namespace UnityLife.Game.Entity.Navigations
         /// </summary>
         public void ResumeMovement()
         {
+            IsStun = false;
             _motion.Resume();
             UpdateTurn();
             ApplyAnim();
+        }
+
+        /// <summary>
+        /// <para>{EN} Target from the server. On the last meters of a route that stops and while standing the body turns to face it.
+        /// Not while stunned: the turn waits until the stun is over. Null drops it.</para>
+        /// {RU} Цель с сервера. На последних метрах маршрута с остановкой и стоя тело доворачивается к ней.
+        /// В стане нет: доворот ждёт выхода из стана. null сбрасывает.
+        /// </summary>
+        public void SetTarget(IEntityMovemet target)
+        {
+            _target = target;
         }
 
         /// <summary>
@@ -173,6 +236,7 @@ namespace UnityLife.Game.Entity.Navigations
         /// </summary>
         public void StopMovement()
         {
+            ReleaseClip();
             _motion.Stop();
             _isStopping = false;
             _turnSide = 0;
@@ -183,11 +247,13 @@ namespace UnityLife.Game.Entity.Navigations
 
         private void Begin(FMVector2 start, FMVector2[] points, bool stopAtEnd, float startSpeed = 0f)
         {
+            ReleaseClip();
             // Тело остаётся где стоит: расхождение с серверным start рисуется смещением и гаснет в Update.
             Vector3 body = transform.position;
             _visualOffset = new Vector2(body.x - start.X, body.z - start.Y);
 
-            if (stopAtEnd)
+            // Наклон гасим только при старте с места: на ходу он сам сойдёт к новой кривой.
+            if (stopAtEnd && startSpeed <= 1e-4f)
                 _currentTilt = 0f;
             _isStopping = false;
             _turnSide = 0;
@@ -219,7 +285,73 @@ namespace UnityLife.Game.Entity.Navigations
             else if (correcting)
                 transform.position = Ground(new Vector2(_motion.Position.X, _motion.Position.Y));
 
+            if (IsStanding())
+                FaceTarget(deltaTime);
+
             UpdateTilt(deltaTime);
+        }
+
+        // Маршрут без торможения держит IsMoving и на последней точке, хотя тело там уже стоит.
+        private bool IsStanding()
+        {
+            if (IsStun || _motion.IsPaused)
+                return false;
+
+            return !_motion.IsMoving || PathLength - PathProgress <= 1e-4f;
+        }
+
+        private void FaceTarget(float deltaTime)
+        {
+            if (!_faceMoveDirection || !TryGetTargetDirection(out Vector3 direction))
+                return;
+
+            RotateToward(direction, deltaTime);
+        }
+
+        private bool TryGetTargetDirection(out Vector3 direction)
+        {
+            direction = default;
+            // Уничтоженный юнит Unity сравнивает с null, хотя ссылка через интерфейс ещё жива.
+            if (_target == null || (_target is UnityEngine.Object unityObject && unityObject == null))
+                return false;
+
+            FMVector2 target = _target.BodyPosition;
+            Vector3 body = transform.position;
+            direction = new Vector3(target.X - body.x, 0f, target.Y - body.z);
+            if (direction.sqrMagnitude < 1e-6f)
+                return false;
+
+            direction.Normalize();
+            return true;
+        }
+
+        // На маршруте с остановкой последние метры курс плавно переходит от касательной к направлению на цель.
+        private Vector3 BlendToTarget(Vector3 tangent)
+        {
+            if (!_motion.StopsAtEnd || _faceTargetDistance <= 1e-4f)
+                return tangent;
+
+            float remaining = PathLength - PathProgress;
+            if (remaining >= _faceTargetDistance || !TryGetTargetDirection(out Vector3 direction))
+                return tangent;
+
+            float weight = 1f - remaining / _faceTargetDistance;
+            return Vector3.Slerp(tangent, direction, weight);
+        }
+
+        private void RotateToward(Vector3 direction, float deltaTime)
+        {
+            if (direction.sqrMagnitude < 1e-8f)
+                return;
+
+            Quaternion look = Quaternion.LookRotation(direction, Vector3.up);
+            if (_turnSpeed <= 0f)
+            {
+                transform.rotation = look;
+                return;
+            }
+
+            transform.rotation = Quaternion.RotateTowards(transform.rotation, look, _turnSpeed * deltaTime);
         }
 
         private bool DecayVisualOffset(float deltaTime)
@@ -509,15 +641,131 @@ namespace UnityLife.Game.Entity.Navigations
 
         private void ApplyAnim()
         {
+            if (IsStun || _clipLock)
+                return;
+
             EnsureAnim();
-            bool moving = IsMoving && !_motion.IsPaused;
-            bool turn = moving && !_isStopping && _turnSide != 0;
-            bool stop = _isStopping;
-            bool move = moving && !_isStopping && !turn;
-            SetAnim(ref _moveAnim, move);
-            SetAnim(ref _stopAnim, stop);
-            SetAnim(ref _leftAnim, turn && _turnSide < 0);
-            SetAnim(ref _rightAnim, turn && _turnSide > 0);
+            int desired = DesiredLocomotion();
+            if (desired < 0)
+                return;
+
+            Play(desired, restart: false);
+        }
+
+        // Пока клип держит тело, движение его не перебивает. Новый маршрут и StopMovement снимают удержание.
+        // Незацикленный клип отпускает тело сам, когда доиграл. Зацикленный ждёт нового маршрута.
+        private void LateUpdate()
+        {
+            if (!_clipLock || _animator == null)
+                return;
+
+            if (_animator.IsInTransition(0))
+            {
+                _clipEntered = true;
+                _clipStateHash = 0;
+                return;
+            }
+
+            AnimatorStateInfo state = _animator.GetCurrentAnimatorStateInfo(0);
+            if (!_clipEntered || _clipStateHash == 0)
+            {
+                // Повтор того же клипа остаётся в том же состоянии. Первый запуск без перехода — триггера в контроллере нет.
+                if (!_clipEntered && !_clipRestart && state.fullPathHash == _stateAtPlay)
+                {
+                    ReleaseClip();
+                    return;
+                }
+
+                LatchClip(state);
+                return;
+            }
+
+            if (state.fullPathHash != _clipStateHash)
+            {
+                EndClip();
+                return;
+            }
+
+            if (state.normalizedTime < 1f || _clipLoops)
+                return;
+
+            EndClip();
+        }
+
+        private int DesiredLocomotion()
+        {
+            if (_motion.IsPaused)
+                return -1;
+            if (_isStopping)
+                return StopIndex;
+            if (!IsMoving)
+                return -1;
+            if (_turnSide < 0)
+                return LeftIndex;
+            if (_turnSide > 0)
+                return RightIndex;
+            return MoveIndex;
+        }
+
+        private void ArmClip()
+        {
+            _clipRestart = _clipLock && _clipEntered;
+            _stateAtPlay = _animator.GetCurrentAnimatorStateInfo(0).fullPathHash;
+            _clipLock = true;
+            _clipEntered = false;
+            _clipStateHash = 0;
+            _clipLoops = false;
+        }
+
+        private void LatchClip(AnimatorStateInfo state)
+        {
+            _clipEntered = true;
+            _clipStateHash = state.fullPathHash;
+            AnimatorClipInfo[] playing = _animator.GetCurrentAnimatorClipInfo(0);
+            _clipLoops = playing.Length > 0 && playing[0].clip != null && playing[0].clip.isLooping;
+        }
+
+        private void ReleaseClip()
+        {
+            _clipLock = false;
+            _clipEntered = false;
+            _clipLoops = false;
+            _clipRestart = false;
+            _clipStateHash = 0;
+        }
+
+        // Клип доиграл. Идущее тело снова берёт Move, Stop, Left или Right. Стоящее остаётся в последнем кадре.
+        private void EndClip()
+        {
+            ReleaseClip();
+            if (IsMoving && !_motion.IsPaused && !_isStopping && !IsStun)
+                ApplyAnim();
+        }
+
+        private void Play(int index, bool restart)
+        {
+            if (_animator == null || (uint)index >= (uint)_triggers.Length || !_triggers[index].Exists)
+                return;
+            if (!restart && _triggers[index].Armed)
+                return;
+
+            for (int i = 0; i < _triggers.Length; i++)
+            {
+                if (!_triggers[i].Exists)
+                    continue;
+
+                bool active = i == index;
+                _triggers[i].Armed = active;
+                if (!active)
+                {
+                    _animator.ResetTrigger(_triggers[i].Hash);
+                    continue;
+                }
+
+                if (restart)
+                    _animator.ResetTrigger(_triggers[i].Hash);
+                _animator.SetTrigger(_triggers[i].Hash);
+            }
         }
 
         private void EnsureAnim()
@@ -533,10 +781,10 @@ namespace UnityLife.Game.Entity.Navigations
 
             _animatorId = id;
             _animReady = true;
-            _moveAnim = Bind(MoveParam);
-            _stopAnim = Bind(StopParam);
-            _leftAnim = Bind(LeftParam);
-            _rightAnim = Bind(RightParam);
+            _triggers = new AnimTrigger[TriggerNames.Length];
+            for (int i = 0; i < TriggerNames.Length; i++)
+                _triggers[i] = Bind(TriggerNames[i]);
+            ReleaseClip();
         }
 
         private AnimTrigger Bind(string name)
@@ -560,20 +808,9 @@ namespace UnityLife.Game.Entity.Navigations
             return slot;
         }
 
-        private void SetAnim(ref AnimTrigger slot, bool active)
-        {
-            if (_animator == null || !slot.Exists || slot.Armed == active)
-                return;
-
-            slot.Armed = active;
-            if (active)
-                _animator.SetTrigger(slot.Hash);
-            else
-                _animator.ResetTrigger(slot.Hash);
-        }
-
         private void OnDisable()
         {
+            ReleaseClip();
             _motion.Stop();
             _isStopping = false;
             _turnSide = 0;
@@ -594,14 +831,8 @@ namespace UnityLife.Game.Entity.Navigations
             if (tangent.sqrMagnitude < 1e-8f)
                 return;
 
-            Quaternion look = Quaternion.LookRotation(new Vector3(tangent.x, 0f, tangent.y).normalized, Vector3.up);
-            if (_turnSpeed <= 0f)
-            {
-                transform.rotation = look;
-                return;
-            }
-
-            transform.rotation = Quaternion.RotateTowards(transform.rotation, look, _turnSpeed * deltaTime);
+            Vector3 heading = BlendToTarget(new Vector3(tangent.x, 0f, tangent.y).normalized);
+            RotateToward(heading, deltaTime);
         }
 
         private void SnapToMotion()

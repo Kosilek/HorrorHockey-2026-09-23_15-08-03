@@ -40,6 +40,7 @@ namespace Server.Core.Match
 
         #region Units
         private readonly Dictionary<int, UnitRuntime> _units;
+        private readonly Dictionary<int, List<UnitRuntime>> _unitAggresices;
         #endregion
 
         /// <summary>
@@ -68,6 +69,7 @@ namespace Server.Core.Match
             _units = new();
             _commands = new();
             _matchTimer = new();
+            _unitAggresices = new();
         }
     }
 }

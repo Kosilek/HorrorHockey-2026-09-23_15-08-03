@@ -6,7 +6,8 @@ namespace Server.Core.Enums
         Move,
         MoveTarget,
         Attack,
-        Die
+        Die,
+        Srun
     }
 
     public enum StateTarget

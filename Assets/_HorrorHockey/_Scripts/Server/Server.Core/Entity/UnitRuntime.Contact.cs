@@ -1,3 +1,4 @@
+using ContractsServer.Command;
 using ContractsServer.Service.Navigation;
 using Server.Core.Enums;
 using FMVector2 = FM.Mathematics.DataTypes.Vector2;
@@ -14,6 +15,9 @@ namespace Server.Core.Entity
         private bool _contactHasForward;
         private FMVector2 _contactForward;
         private bool _contactClockwise;
+
+        // Шёл ли юнит по полосе до обрезки маршрута касанием. После касания без цели он туда вернётся.
+        private bool _contactResumeLane;
 
         // Пара, чей контакт уже разобран. Пока тела не разошлись, новое касание той же пары не планируется.
         private UnitRuntime _contactPartner;
@@ -32,10 +36,10 @@ namespace Server.Core.Entity
             && _routeMotion.PathProgress < _routeMotion.PathLength - 1e-4f;
 
         /// <summary>
-        /// <para>{EN} Runs at half of max speed or faster. Whoever it touches rolls for a fall.</para>
-        /// {RU} Бежит со скоростью не ниже половины максимальной. Тот, кого он коснётся, бросает шанс на падение.
+        /// <para>{EN} Runs at half of max speed or faster. Whoever it touches rolls for a fall. Driving to the place for an attack is not a charge.</para>
+        /// {RU} Бежит со скоростью не ниже половины максимальной. Тот, кого он коснётся, бросает шанс на падение. Доезд до места для атаки — не чардж.
         /// </summary>
-        public bool IsCharging => IsBodyMoving && CurrentSpeed >= _routeMotion.MaxSpeed * 0.5f;
+        public bool IsCharging => IsBodyMoving && !IsDrivingToAttackRange && CurrentSpeed >= _routeMotion.MaxSpeed * 0.5f;
 
         public bool IsDead => _unitAggression.StatusUnit == StatusUnit.Die;
 
@@ -70,9 +74,14 @@ namespace Server.Core.Entity
         /// <param name="center">{EN} Center of this unit at the touch. {RU} Центр этого юнита в момент касания.</param>
         public void PlanContact(UnitRuntime other, float time, bool rollFall, FMVector2 center)
         {
+            // Игнор контактов: обрезка встала бы на касании, которое потом не разберётся.
+            if (_ignoreContacts)
+                return;
             if (_contactWith != null && _contactTime <= time)
                 return;
 
+            if (_contactWith == null)
+                _contactResumeLane = _followBaseRoute;
             _contactWith = other;
             _contactTime = time;
             _contactRollsFall = rollFall;
@@ -83,9 +92,18 @@ namespace Server.Core.Entity
             if (!IsBodyMoving)
                 return;
 
-            //// Касание прямо сейчас: маршрут нулевой длины не строится, поэтому встаём на месте.
-            //if (!TryStartMovingRoute(new[] { center }))
-            //    DropOrders();
+            // Без обрезки оба тела проедут весь следующий тик и к разбору уже будут друг в друге.
+            if (!TryStartMovingRoute(new[] { center }))
+                HoldPosition();
+        }
+
+        // Касание прямо сейчас: маршрут нулевой длины не строится, поэтому встаём на месте без стана.
+        private void HoldPosition()
+        {
+            ResetCircle();
+            _followBaseRoute = false;
+            _routeMotion.Stop();
+            _sendCommand.Invoke(CommandWs.StopUnit, Id);
         }
 
         /// <summary>
@@ -94,38 +112,97 @@ namespace Server.Core.Entity
         /// </summary>
         public void ResolveContact()
         {
-            if (_ignoreContacts)
-                return;
             UnitRuntime other = _contactWith;
             _contactWith = null;
-            if (other == null)
+            if (other == null || _ignoreContacts)
                 return;
 
             _ignoreContacts = true;
             _attackCharge = false;
             _chaseToAttackRange = false;
+            ClearAttackSlot();
             _contactPartner = other;
-            if (!_contactRollsFall)
+
+            if (_contactRollsFall)
+            {
+                // otherFell — упал ли второй от этой же пары. Круг только у того, кто сам устоял, и только если упал второй.
+                bool isFall = RollFall(other, out bool otherFell);
+                if (isFall)
+                {
+                    Stun(StunTime);
+                    StartAnimationClip((byte)StateAnimation.Fall);
+                    return;
+                }
+
+                if (otherFell && StartContactCircle())
+                    return;
+            }
+
+            ContinueAfterContact();
+        }
+
+        private bool StartContactCircle()
+        {
+            if (_contactHasForward)
+                return TryStartCircle(2.5f, _contactForward, onComplete: TurnBackThenEngage, clockwise: _contactClockwise);
+
+            return TryStartCircle(2.5f, onComplete: TurnBackThenEngage, clockwise: _contactClockwise);
+        }
+
+        // Маршрут обрезан точкой касания, поэтому без продолжения юнит так и стоял бы в ней.
+        // С целью встаёт на место для атаки, без цели возвращается на полосу, если шёл по ней.
+        private void ContinueAfterContact()
+        {
+            if (EngageTarget())
                 return;
 
-            // otherFell — упал ли второй от этой же пары. Круг только у того, кто сам устоял, и только если упал второй.
-            bool isFall = RollFall(other, out bool otherFell);
-            if (isFall)
-                Stun(StunTime);
-            else if (otherFell)
-            {
-                if (_contactHasForward)
-                    TryStartCircle(2.5f, _contactForward, onComplete: TurnBackThenEngage, clockwise: _contactClockwise);
-                else
-                    TryStartCircle(2.5f, onComplete: TurnBackThenEngage, clockwise: _contactClockwise);
-            }
+            if (_contactResumeLane && CanRebuildRoute && !IsDead)
+                FollowBaseRoute();
         }
 
         // Разворот может не построиться у стены — тогда на цель идём сразу с конца круга.
+        // Сдвиг обратного пути — в ту же сторону, что и круг, то есть от второго юнита.
         private void TurnBackThenEngage()
         {
-            if (!TryStartTurnBack(onComplete: () => EngageTarget()))
+            if (TryTurnBackToAttackSlot(out bool slotAhead))
+                return;
+
+            // Место впереди: доезд с торможением, а не удар с места на полном ходу.
+            if (slotAhead)
+            {
+                _chaseToAttackRange = TryStartAttackRangeRoute(_unitAggression.CurrentTarget);
+                if (!_chaseToAttackRange)
+                    EngageTarget();
+                return;
+            }
+
+            if (!TryStartTurnBack(turnRight: _contactClockwise, onComplete: () => EngageTarget()))
                 EngageTarget();
+        }
+
+        // Разворот сразу кончается в месте для атаки и тормозит там. Иначе он кончался бы спиной к цели,
+        // и до места пришлось бы разворачиваться второй раз. Место впереди — разворот не нужен, туда ведёт обычный доезд.
+        private bool TryTurnBackToAttackSlot(out bool slotAhead)
+        {
+            slotAhead = false;
+            if (!_unitAggression.HasTarget || !TryGetForward(out FMVector2 forward))
+                return false;
+
+            UnitRuntime target = _unitAggression.CurrentTarget;
+            FMVector2 slot = FindAttackSlot(target);
+            float dx = slot.X - Position.X;
+            float dy = slot.Y - Position.Y;
+            if (forward.X * dx + forward.Y * dy > 0f)
+            {
+                slotAhead = true;
+                return false;
+            }
+
+            if (!TryStartTurnBack(forward, TurnBackReach(2f), slot, 0.3f, stopAtEnd: true, onStart: null, onComplete: () => EngageTarget()))
+                return false;
+
+            ClaimAttackSlot(target, slot);
+            return true;
         }
 
 

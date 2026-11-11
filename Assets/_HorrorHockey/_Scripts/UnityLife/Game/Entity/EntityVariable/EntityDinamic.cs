@@ -45,6 +45,13 @@ namespace UnityLife.Game.Entity
             _agentAI.StartMovement(start, controls);
         }
 
+        public void StartMovement(FMVector2 start, FMVector2[] controls, float startSpeed)
+        {
+            if (_agentAI == null)
+                Initialize();
+            _agentAI.StartMovement(start, controls, startSpeed);
+        }
+
         public void StartMovingRoute(FMVector2 start, FMVector2[] controls, float startSpeed)
         {
             if (_agentAI == null)
@@ -86,6 +93,15 @@ namespace UnityLife.Game.Entity
                 Initialize();
             _agentAI.StartAnimationClip(animationClip);
         }
+
+        public void SetTarget(IEntityMovemet target)
+        {
+            if (_agentAI == null)
+                Initialize();
+            _agentAI.SetTarget(target);
+        }
+
+        public FMVector2 BodyPosition => new FMVector2(transform.position.x, transform.position.z);
         #endregion
     }
 }

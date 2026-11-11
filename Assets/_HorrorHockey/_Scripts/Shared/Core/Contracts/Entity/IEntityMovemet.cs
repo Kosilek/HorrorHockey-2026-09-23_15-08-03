@@ -17,6 +17,12 @@ namespace Shared.Core.Contracts
         void StartMovement(Vector2 start, Vector2[] controls);
 
         /// <summary>
+        /// <para>{EN} Same as StartMovement, but the body enters the curve at startSpeed instead of accelerating from zero. Brakes at the end.</para>
+        /// {RU} То же, что StartMovement, но тело входит в кривую со скоростью startSpeed, а не разгоняется с нуля. В конце тормозит.
+        /// </summary>
+        void StartMovement(Vector2 start, Vector2[] controls, float startSpeed);
+
+        /// <summary>
         /// <para>{EN} Server route without braking. Slides onto the curve smoothly, enters at startSpeed and keeps its speed on the last point.</para>
         /// {RU} Маршрут с сервера без торможения. Плавно съезжает на кривую, входит со скоростью startSpeed и на последней точке скорость не гасит.
         /// </summary>
@@ -51,5 +57,17 @@ namespace Shared.Core.Contracts
         /// {RU} Запускает клип анимации, присланный сервером. Индекс — клип в контроллере аниматора.
         /// </summary>
         void StartAnimationClip(byte animationClip);
+
+        /// <summary>
+        /// <para>{EN} The target from the server. Standing or finishing a route, the body turns to face it. Null drops it.</para>
+        /// {RU} Цель с сервера. Стоя или на подъезде к концу маршрута тело доворачивается к ней. null сбрасывает.
+        /// </summary>
+        void SetTarget(IEntityMovemet target);
+
+        /// <summary>
+        /// <para>{EN} Where the body stands on the ground plane. Y is world Z.</para>
+        /// {RU} Где стоит тело на плоскости земли. Y — мировая Z.
+        /// </summary>
+        Vector2 BodyPosition { get; }
     }
 }

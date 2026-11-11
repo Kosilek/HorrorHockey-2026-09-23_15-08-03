@@ -100,6 +100,15 @@ namespace ContractsServer.BinaryProtocol.Codec
         public static ValueTuple<int, byte> ReadAnimation(BinaryReader reader) =>
             (reader.ReadInt32(), reader.ReadByte());
 
+        public static void WriteTarget(BinaryWriter writer, ushort unitId, int targetId)
+        {
+            writer.WriteUInt16(unitId);
+            writer.WriteInt32(targetId);
+        }
+
+        public static ValueTuple<ushort, int> ReadTarget(BinaryReader reader) =>
+            (reader.ReadUInt16(), reader.ReadInt32());
+
         private static void WriteRouteHead(BinaryWriter writer, ushort unitId, FmVector2 start, FmVector2[] points, byte kind)
         {
             points ??= Array.Empty<FmVector2>();

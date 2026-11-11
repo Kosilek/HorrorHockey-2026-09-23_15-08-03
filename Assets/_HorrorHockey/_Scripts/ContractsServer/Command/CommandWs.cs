@@ -11,5 +11,6 @@ namespace ContractsServer.Command
         public const string UnstunUnit = "UnstunUnit";
         public const string StopUnit = "StopUnit";
         public const string StartAnimationClip = "StartAnimationClip";
+        public const string SetTarget = "SetTarget";
     }
 }

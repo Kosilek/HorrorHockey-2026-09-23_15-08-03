@@ -54,7 +54,8 @@ namespace Server.Core.Entity
                 {
                     Id = this.Id,
                     DetectionRadius = DetectionRadius,
-                    AttackRadius = AttackRadius
+                    AttackRadius = AttackRadius,
+                    BodyWidth = BodyWidth
                 };
 
                 Health =
@@ -77,8 +78,12 @@ namespace Server.Core.Entity
 
                 _unitAggression = new(dataUnit.Item4.TargetSelector, unitAggressionData);
                 _unitAggression.StatusChanged += OnStatusChanged;
+                _unitAggression.TargetChanged += OnTargetChanged;
                 _sendCommand = dataUnit.Item4.SendCommand;
                 _navigationService = dataUnit.Item4.NavigationService;
+                _getUnitsByTarget = dataUnit.Item4.GetUnitsByTarget;
+                _targetChanged = dataUnit.Item4.TargetChanged;
+                _attackSlotTarget = null;
                 _circleControls = null;
                 _circleComplete = null;
                 _stunCount = 0;

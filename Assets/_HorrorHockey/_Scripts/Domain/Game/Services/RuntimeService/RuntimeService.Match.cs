@@ -24,8 +24,9 @@ namespace Domain.Game.Services
         {
             if (_entityMovements.TryGetValue(indexUnit, out IEntityMovemet entityMovement))
             {
+                // Маршрут с торможением тоже входит с серверной скоростью, иначе клиент перед ним встанет и разгонится с нуля.
                 if (stopAtEnd)
-                    entityMovement.StartMovement(start, controls);
+                    entityMovement.StartMovement(start, controls, startSpeed);
                 else
                     entityMovement.StartMovingRoute(start, controls, startSpeed);
             }
@@ -62,6 +63,19 @@ namespace Domain.Game.Services
 
             if (_entityMovements.TryGetValue((ushort)indexUnit, out IEntityMovemet entityMovement))
                 entityMovement.StartAnimationClip(animationClip);
+        }
+
+        public void SetTarget(ushort indexUnit, int indexTarget)
+        {
+            if (!_entityMovements.TryGetValue(indexUnit, out IEntityMovemet entityMovement))
+                return;
+
+            // Цель ещё не заспавнена на клиенте или её нет — юнит просто перестаёт к ней доворачиваться.
+            IEntityMovemet target = null;
+            if ((uint)indexTarget <= ushort.MaxValue)
+                _entityMovements.TryGetValue((ushort)indexTarget, out target);
+
+            entityMovement.SetTarget(target);
         }
     }
 }

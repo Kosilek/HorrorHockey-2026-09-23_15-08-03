@@ -52,7 +52,9 @@ namespace Server.Core.Match
             {
                 SendCommand = _webSocket.SendCommand,
                 TargetSelector = _targetSelector,
-                NavigationService = _navigationService
+                NavigationService = _navigationService,
+                GetUnitsByTarget = GetAllUnitTarget,
+                TargetChanged = OnUnitTargetChanged
             };
 
             UnitRuntime unit = slot.TObj;
