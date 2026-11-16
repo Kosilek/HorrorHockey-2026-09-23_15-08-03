@@ -57,12 +57,16 @@ namespace Server.Core.Entity
 
         private void ClipLoopAttack()
         {
-            if (!_isStartAttackLoop || _entityDataAttackClip == null)
+            if (!_isStartAttackLoop)
                 return;
 
             float duration = _entityDataAttackClip.Duration;
             if (duration <= 0f)
+            {
+                if (_oldTargetDead)
+                    StopAttackClip();
                 return;
+            }
 
             float previous = _currentTimeClip;
             float next = previous + _defaultTick;
@@ -72,6 +76,13 @@ namespace Server.Core.Entity
             if (next < duration)
             {
                 _currentTimeClip = next;
+                return;
+            }
+
+            // Цель этого клипа уже мертва: добивание прошло, новый цикл не начинаем.
+            if (_oldTargetDead)
+            {
+                StopAttackClip();
                 return;
             }
 
@@ -93,17 +104,30 @@ namespace Server.Core.Entity
 
         public bool TakeDamage(float damage)
         {
+            if (IsDead)
+                return false;
+
             Health -= damage;
 
             UnityEngine.Debug.Log($"TakeDamage. Id: {Id}. Health: {Health}");
             if (Health <= 0)
             {
-                _unitAggression.SetStatusUnit(StatusUnit.Die);
+                Death();
                 return false;
             }
 
             return true;
 
+        }
+
+        public void Death()
+        {
+            if (IsDead)
+                return;
+
+            StartAnimationClip((byte)StateAnimation.Death);
+            _unitAggression.SetStatusUnit(StatusUnit.Die);
+            _callDeath(Id);
         }
 
         public void TakeHealing(float healing)

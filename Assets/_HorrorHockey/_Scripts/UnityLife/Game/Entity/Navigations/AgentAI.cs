@@ -164,6 +164,11 @@ namespace UnityLife.Game.Entity.Navigations
             else
                 ReleaseClip();
 
+            if (index == (int)StateAnimation.Attack)
+            {
+                
+            }
+
             Play(index, restart: true);
         }
 

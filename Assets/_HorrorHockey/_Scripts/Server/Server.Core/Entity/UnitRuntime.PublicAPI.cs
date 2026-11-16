@@ -21,11 +21,17 @@ namespace Server.Core.Entity
 
         private FMVector2 savePositionTarget;
 
+        // Куда ведёт текущий чардж. Пока цель стоит, маршрут перестраивается, только если эта точка заметно сместилась.
+        private FMVector2 _chargePoint;
+
         // Первая атака по цели на бегу — чардж: юнит не встаёт, а доезжает до удара. Сбросится ударом или потерей скорости.
         private bool _attackCharge;
 
         // Погоня после манёвра встаёт на радиусе атаки, а не едет до касания.
         private bool _chaseToAttackRange;
+
+        // Цель умерла, пока шёл клип. Новую ищем, когда этот клип доиграет.
+        private bool _oldTargetDead = false;
 
         #region Public API
 
@@ -56,13 +62,23 @@ namespace Server.Core.Entity
                     _routeMotion.Tick(deltaTime);
                     if (IsCircling && IsCircleEnding(deltaTime))
                         FinishCircle();
+                    else if (_followBaseRoute)
+                        TickLaneEnd(deltaTime);
                     if (_attackCharge && !IsRunning())
                         _attackCharge = false;
                 }
+                else if (_followBaseRoute && TryOrbitLaneEnd())
+                {
+                    _rejoinBaseRoute = false;
+                }
                 else if (_followBaseRoute)
                 {
-                    if (TryBeginRoute(_baseRoute))
+                    bool rejoined = _rejoinBaseRoute
+                        && TryBuildRejoinRoute(out FMVector2[] rejoin)
+                        && TryBeginRoute(rejoin);
+                    if (rejoined || TryBeginRoute(_baseRoute))
                     {
+                        _rejoinBaseRoute = false;
                         _unitAggression.SetStatusUnit(StatusUnit.Move);
                         _sendCommand.Invoke(CommandWs.CreateRoute, (Id, RouteStart, RouteControls));
                     }
@@ -70,6 +86,7 @@ namespace Server.Core.Entity
             }
 
             ClipLoopAttack();
+            FinishDeadTargetClip();
 
             if (_ignoreContacts)
             {
@@ -96,18 +113,7 @@ namespace Server.Core.Entity
                 case 2:
                     if (CanRebuildRoute && _unitAggression.StatusUnit is not (StatusUnit.Attack or StatusUnit.MoveTarget))
                     {
-                        if (_unitAggression.CheckTarget(CurrentCell))
-                        {
-                            _chaseToAttackRange = false;
-                            StartAttackCharge();
-                            FMVector2[] controls = new FMVector2[1];
-                            controls[0] = GetApproachPoint(_unitAggression.CurrentTarget);
-                            savePositionTarget = _unitAggression.CurrentTarget.Position;
-                            if (_unitAggression.StatusUnit == StatusUnit.Idle)
-                                TryStartRoute(controls);
-                            else
-                                SteerToTarget(controls, _unitAggression.CurrentTarget);
-                        }
+                        FindTarget();
                     }
                     break;
                 case 3:
@@ -122,6 +128,28 @@ namespace Server.Core.Entity
             if (_currentTick > _maxTick)
             {
                 _currentTick = 0;
+            }
+        }
+
+        // Клип по умершей цели уже кончился: ищем новую. Без живой цели возвращаемся на полосу.
+        private void FinishDeadTargetClip()
+        {
+            if (!_oldTargetDead || _isStartAttackLoop || IsStunned)
+                return;
+
+            _oldTargetDead = false;
+            FindTarget();
+            if (!_unitAggression.HasTarget)
+                ResetTarget();
+        }
+
+        private void FindTarget()
+        {
+            if (_unitAggression.CheckTarget(CurrentCell))
+            {
+                _chaseToAttackRange = false;
+                StartAttackCharge();
+                SteerCharge(_unitAggression.CurrentTarget, force: true);
             }
         }
 
@@ -149,28 +177,60 @@ namespace Server.Core.Entity
                 _attackCharge = false;
             else
                 StartAttackCharge();
-            if (savePositionTarget == target.Position)
-                return;
 
             if (_chaseToAttackRange)
             {
-                TryStartAttackRangeRoute(target);
+                if (savePositionTarget != target.Position)
+                    TryStartAttackRangeRoute(target);
                 return;
             }
 
-            // Чардж едет до касания, а не в слот, поэтому места у цели не держит.
-            ClearAttackSlot();
-            var controls = new FMVector2[1];
-            controls[0] = GetApproachPoint(target);
+            SteerCharge(target, force: false);
+        }
+
+        // Куда бежит чардж: во встречную с целью точку, если оба бегут друг на друга, иначе к свободной точке у края цели.
+        // Если у края тесно — доезд до свободного места для атаки. Место занимается сразу, ещё на бегу, чтобы следующие его обходили.
+        // Без force маршрут не перестраивается, пока точка та же: цель стоит или встреча уже договорена.
+        private void SteerCharge(UnitRuntime target, bool force)
+        {
+            if (TryGetMeetAim(target, out FMVector2 meetAim))
+            {
+                if (!force && ReferenceEquals(_chargeTarget, target) && IsSameChargePoint(meetAim) && _routeMotion.HasRoute)
+                    return;
+
+                ClaimChargePoint(target, meetAim);
+                savePositionTarget = target.Position;
+                TryStartMovingRoute(new[] { meetAim });
+                return;
+            }
+
+            // Цель стоит, но рядом с ней могли встать или прибежать другие: тогда точка удара сместится и маршрут доворачивается.
+            if (!TryFindChargePoint(target, out FMVector2 chargePoint) && TryChaseToFreeSlot(target))
+                return;
+            if (!force && savePositionTarget == target.Position && IsSameChargePoint(chargePoint))
+                return;
+
+            ClaimChargePoint(target, chargePoint);
             savePositionTarget = target.Position;
-            SteerToTarget(controls, target);
+            SteerToTarget(new[] { chargePoint }, target);
+        }
+
+        // С ближней стороны цели тесно: вместо удара в кучу юнит доезжает до свободного места для атаки и тормозит там.
+        private bool TryChaseToFreeSlot(UnitRuntime target)
+        {
+            if (!TryStartAttackRangeRoute(target))
+                return false;
+
+            _chaseToAttackRange = true;
+            _attackCharge = false;
+            return true;
         }
 
         private void TickAttack()
         {
             if (_unitAggression.StatusUnit == StatusUnit.Attack)
             {
-                if (_attackCharge || IsCircling || IsDrivingToAttackRange)
+                if (_attackCharge || IsCircling || IsDrivingToAttackRange || IsStunned)
                     return;
 
                 // Между ударами: цель могла умереть или отойти, тогда атака на месте бессмысленна.
@@ -190,6 +250,16 @@ namespace Server.Core.Entity
                         savePositionTarget = default;
                         _chaseToAttackRange = true;
                         return;
+                    }
+
+                    // Дошёл до цели без своего места, например чарджем без касания. Если тут тесно, отъезжает в свободное.
+                    UnitRuntime target = _unitAggression.CurrentTarget;
+                    if (!ReferenceEquals(_attackSlotTarget, target))
+                    {
+                        if (!IsFreeAttackSpot(target, Position) && TryChaseToFreeSlot(target))
+                            return;
+
+                        ClaimAttackSlot(target, Position);
                     }
                 }
 
@@ -276,6 +346,7 @@ namespace Server.Core.Entity
         /// </summary>
         public void ResetTarget(bool returnToLane = true)
         {
+            _oldTargetDead = false;
             _unitAggression.ClearTarget();
             _attackCharge = false;
             _chaseToAttackRange = false;
@@ -315,13 +386,6 @@ namespace Server.Core.Entity
             return true;
         }
         #endregion
-
-        // Конец маршрута погони — не центр цели, а точка на сумме радиусов от него со стороны юнита.
-        // Чуть внутрь, чтобы касание засчиталось, когда юнит встанет в конце маршрута.
-        private FMVector2 GetApproachPoint(UnitRuntime target)
-        {
-            return GetApproachPoint(target, (BodyWidth + target.BodyWidth) * 0.5f - _approachOverlap);
-        }
 
         // Точка на расстоянии gap от центра цели со стороны юнита.
         private FMVector2 GetApproachPoint(UnitRuntime target, float gap)
@@ -388,7 +452,79 @@ namespace Server.Core.Entity
         public void FollowBaseRoute()
         {
             _followBaseRoute = true;
+            _rejoinBaseRoute = true;
             _routeMotion.Stop();
+        }
+
+        // Полоса — ломаная по контролам, и у многих в ней всего две точки, поэтому ближайшая ищется на отрезках, а не среди вершин.
+        // Вход сдвинут вперёд по полосе на расстояние до неё: юнит вливается под углом, а не подходит поперёк и не разворачивается.
+        private bool TryBuildRejoinRoute(out FMVector2[] controls)
+        {
+            controls = null;
+            FMVector2[] lane = _baseRoute;
+            if (lane == null || lane.Length < 2 || _navigationService == null)
+                return false;
+
+            FMVector2 position = Position;
+            int segment = 0;
+            float along = 0f;
+            float bestSqr = float.MaxValue;
+            for (int i = 0; i < lane.Length - 1; i++)
+            {
+                float t = ProjectOnSegment(position, lane[i], lane[i + 1]);
+                FMVector2 point = Lerp(lane[i], lane[i + 1], t);
+                float dx = point.X - position.X;
+                float dy = point.Y - position.Y;
+                float sqr = dx * dx + dy * dy;
+                if (sqr < bestSqr)
+                {
+                    bestSqr = sqr;
+                    segment = i;
+                    along = t;
+                }
+            }
+
+            FMVector2 join = AdvanceAlongLane(lane, ref segment, along, MathF.Sqrt(bestSqr));
+            if (!_navigationService.TryBuildRoute(position, join, out FMVector2[] approach))
+                return false;
+
+            int tail = lane.Length - 1 - segment;
+            controls = new FMVector2[approach.Length + tail];
+            Array.Copy(approach, controls, approach.Length);
+            Array.Copy(lane, segment + 1, controls, approach.Length, tail);
+            return true;
+        }
+
+        // Доля отрезка from-to, на которую падает перпендикуляр из point, в пределах 0..1.
+        private static float ProjectOnSegment(FMVector2 point, FMVector2 from, FMVector2 to)
+        {
+            float sx = to.X - from.X;
+            float sy = to.Y - from.Y;
+            float lengthSqr = sx * sx + sy * sy;
+            if (lengthSqr <= 1e-8f)
+                return 0f;
+
+            float t = ((point.X - from.X) * sx + (point.Y - from.Y) * sy) / lengthSqr;
+            return MathF.Min(MathF.Max(t, 0f), 1f);
+        }
+
+        // Точка на полосе через distance вперёд от доли along отрезка segment. segment — отрезок, на котором она оказалась. Дальше конца не уходит.
+        private static FMVector2 AdvanceAlongLane(FMVector2[] lane, ref int segment, float along, float distance)
+        {
+            FMVector2 point = Lerp(lane[segment], lane[segment + 1], along);
+            while (true)
+            {
+                FMVector2 end = lane[segment + 1];
+                float dx = end.X - point.X;
+                float dy = end.Y - point.Y;
+                float left = MathF.Sqrt(dx * dx + dy * dy);
+                if (distance <= left || segment + 2 >= lane.Length)
+                    return left > 1e-5f ? Lerp(point, end, MathF.Min(distance / left, 1f)) : end;
+
+                distance -= left;
+                point = end;
+                segment++;
+            }
         }
 
         /// <summary>
@@ -454,6 +590,94 @@ namespace Server.Core.Entity
             _sendCommand.Invoke(CommandWs.CreateRoute, (Id, RouteStart, controls, false, _routeMotion.CurrentSpeed));
             onStart?.Invoke();
             return true;
+        }
+
+        // Следующий круг стартует, пока не кончился текущий: иначе тело постояло бы в конце круга до нового маршрута.
+        // Круг без торможения в конце сам не кончается: если следующий не построился, юнит возвращается на полосу, а не застывает в конце.
+        private void TickLaneEnd(float deltaTime)
+        {
+            if (!IsOrbitingLaneEnd)
+            {
+                if (IsNearLaneEnd(0f))
+                    TryOrbitLaneEnd();
+                return;
+            }
+
+            if (IsCircleEnding(deltaTime) && !TryOrbitLaneEnd())
+                FollowBaseRoute();
+        }
+
+        // extra — запас сверх радиуса: кривая круга чуть выходит за окружность, и юнит на круге не должен выпасть из него.
+        private bool IsNearLaneEnd(float extra)
+        {
+            if (_baseRoute == null || _baseRoute.Length == 0)
+                return false;
+
+            FMVector2 end = _baseRoute[_baseRoute.Length - 1];
+            float dx = Position.X - end.X;
+            float dy = Position.Y - end.Y;
+            float radius = LaneEndOrbitRadius + extra;
+            return dx * dx + dy * dy <= radius * radius;
+        }
+
+        /// <summary>
+        /// <para>{EN} Near the lane end the unit does not stop but laps around the last lane point at LaneEndOrbitRadius, one lap per route, without end.
+        /// It joins the circle at its own angle and keeps the side it was turning to. Aggression and contacts work as on the lane.</para>
+        /// {RU} У конца полосы юнит не останавливается, а кружит вокруг её последней точки на радиусе LaneEndOrbitRadius, по кругу на маршрут, без конца.
+        /// Входит в круг на своём углу и сохраняет сторону, в которую поворачивал. Агрессия и контакты работают как на полосе.
+        /// </summary>
+        private bool TryOrbitLaneEnd()
+        {
+            bool continuing = IsOrbitingLaneEnd;
+            if (_navigationService == null || !IsNearLaneEnd(continuing ? BodyWidth : 0f))
+                return false;
+
+            FMVector2 center = _baseRoute[_baseRoute.Length - 1];
+            FMVector2 position = Position;
+            float dx = position.X - center.X;
+            float dy = position.Y - center.Y;
+            float distance = MathF.Sqrt(dx * dx + dy * dy);
+            float startAngle = distance > 1e-4f ? MathF.Atan2(dy, dx) : 0f;
+            if (!continuing)
+                _orbitClockwise = IsOrbitClockwise(dx, dy, distance);
+
+            float angleStep = (_orbitClockwise ? -2f : 2f) * MathF.PI / CirclePointsPerLap;
+            var waypoints = new FMVector2[CirclePointsPerLap + 1];
+            waypoints[0] = position;
+            int kept = 1;
+            for (int i = 1; i <= CirclePointsPerLap; i++)
+            {
+                float angle = startAngle + angleStep * i;
+                var point = new FMVector2(center.X + MathF.Cos(angle) * LaneEndOrbitRadius, center.Y + MathF.Sin(angle) * LaneEndOrbitRadius);
+                if (_navigationService.IsWalkable(point))
+                    waypoints[kept++] = point;
+            }
+
+            if (kept < 3)
+                return false;
+            if (kept < waypoints.Length)
+                Array.Resize(ref waypoints, kept);
+
+            if (!_navigationService.TryBuildRoute(waypoints, out FMVector2[] controls))
+                return false;
+            if (!TryBeginRoute(controls, stopAtEnd: false, _routeMotion.CurrentSpeed))
+                return false;
+
+            _orbitControls = controls;
+            _unitAggression.SetStatusUnit(StatusUnit.Move);
+            _sendCommand.Invoke(CommandWs.CreateRoute, (Id, RouteStart, controls, false, _routeMotion.CurrentSpeed));
+            return true;
+        }
+
+        // Туда, куда юнит уже поворачивает вокруг конца полосы. Едет прямо на конец — по часовой.
+        private bool IsOrbitClockwise(float dx, float dy, float distance)
+        {
+            if (distance <= 1e-4f || !TryGetForward(out FMVector2 forward))
+                return true;
+
+            // Скорость вдоль касательной против часовой (-dy, dx), в долях курса.
+            float along = (forward.Y * dx - forward.X * dy) / distance;
+            return along < 0.1f;
         }
 
         /// <summary>
@@ -616,6 +840,7 @@ namespace Server.Core.Entity
             _stunTimer = 0f;
             _routeMotion.Resume();
             _sendCommand.Invoke(CommandWs.UnstunUnit, Id);
+            GetUp();
         }
 
         /// <summary>
@@ -656,6 +881,15 @@ namespace Server.Core.Entity
                 other._routeMotion, other.BodyWidth * 0.5f, !other.CanMoveByRoute,
                 horizon, GameConstants.DeltaTime,
                 out time, out _, out selfCenter);
+        }
+
+        // Удар уже начат — клип доигрывается по этой цели. Иначе цель, маршрут и клип сбрасываются сразу.
+        public void ResetTargetForKill()
+        {
+            if (_isStartAttackLoop)
+                _oldTargetDead = true;
+            else
+                ResetTarget();
         }
 
         private void DropOrders()

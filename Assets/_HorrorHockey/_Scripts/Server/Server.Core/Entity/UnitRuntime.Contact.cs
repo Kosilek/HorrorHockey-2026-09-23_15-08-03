@@ -11,6 +11,12 @@ namespace Server.Core.Entity
         private float _contactTime;
         private bool _contactRollsFall;
 
+        // Касание пришлось в юнита, который уже в драке: оно только бросает падение и не трогает его маршрут и бой.
+        private bool _contactKeepsOrders;
+
+        // Упал от касания. Встав, идёт драться со своей целью.
+        private bool _fallen;
+
         // Курс и сторона круга берутся при планировании: к разбору тела уже проехали друг сквозь друга.
         private bool _contactHasForward;
         private FMVector2 _contactForward;
@@ -44,6 +50,14 @@ namespace Server.Core.Entity
         public bool IsDead => _unitAggression.StatusUnit == StatusUnit.Die;
 
         /// <summary>
+        /// <para>{EN} Already in a fight: just had a contact, lies after a fall or makes the maneuver after a hit.
+        /// Knocks nobody down itself. A hit into it only rolls its fall and does not change its orders.</para>
+        /// {RU} Уже в драке: только что был контакт, лежит после падения или в манёвре после удара.
+        /// Сам никого не роняет. Удар в него только бросает ему падение и не меняет его приказов.
+        /// </summary>
+        public bool IsInFight => _ignoreContacts || IsStunned || IsCircling;
+
+        /// <summary>
         /// <para>{EN} Touch with the other body during the next tick, if both keep their routes.</para>
         /// {RU} Касание с другим телом за следующий тик, если оба продолжат свои маршруты.
         /// </summary>
@@ -74,18 +88,22 @@ namespace Server.Core.Entity
         /// <param name="center">{EN} Center of this unit at the touch. {RU} Центр этого юнита в момент касания.</param>
         public void PlanContact(UnitRuntime other, float time, bool rollFall, FMVector2 center)
         {
-            // Игнор контактов: обрезка встала бы на касании, которое потом не разберётся.
-            if (_ignoreContacts)
-                return;
             if (_contactWith != null && _contactTime <= time)
                 return;
 
-            if (_contactWith == null)
-                _contactResumeLane = _followBaseRoute;
+            bool first = _contactWith == null;
             _contactWith = other;
             _contactTime = time;
             _contactRollsFall = rollFall;
             _fallReady = false;
+
+            // Юнит в драке продолжает свой круг или бой: маршрут обрезается только тому, кто в него врезался.
+            _contactKeepsOrders = IsInFight;
+            if (_contactKeepsOrders)
+                return;
+
+            if (first)
+                _contactResumeLane = _followBaseRoute;
             _contactHasForward = TryGetForward(out _contactForward);
             _contactClockwise = IsHitFromLeft(other);
 
@@ -107,37 +125,72 @@ namespace Server.Core.Entity
         }
 
         /// <summary>
-        /// <para>{EN} After the move of the planned tick. A fall drops orders. Whoever stays up circles only when the other one fell. The pair is closed until the bodies separate.</para>
-        /// {RU} После движения запланированного тика. Падение сбрасывает приказы. Устоявший идёт по кругу, только если упал второй. Пара закрыта, пока тела не разошлись.
+        /// <para>{EN} After the move of the planned tick. A fall drops orders. Whoever stays up circles when the other one fell from this hit or was already down,
+        /// otherwise stops to fight. A unit already in a fight only rolls its fall. The pair is closed until the bodies separate.</para>
+        /// {RU} После движения запланированного тика. Падение сбрасывает приказы. Устоявший идёт по кругу, если второй упал от этого удара или уже лежал,
+        /// иначе встаёт драться. Юнит, который уже был в драке, только бросает падение. Пара закрыта, пока тела не разошлись.
         /// </summary>
         public void ResolveContact()
         {
             UnitRuntime other = _contactWith;
             _contactWith = null;
-            if (other == null || _ignoreContacts)
+            if (other == null)
                 return;
 
+            _contactPartner = other;
             _ignoreContacts = true;
+            _cooldownContacts = 0f;
+
+            // Поиск цели на круге и лёжа не идёт: без этого юнит, сбитый на полосе, после круга уехал бы дальше по ней.
+            if (!_unitAggression.HasTarget && !other.IsDead && other.Team != Team)
+                _unitAggression.SetTargetUnit(other, Position);
+
+            if (_contactKeepsOrders)
+            {
+                if (_contactRollsFall && RollOwnFall(other))
+                    Fall();
+                return;
+            }
+
             _attackCharge = false;
             _chaseToAttackRange = false;
             ClearAttackSlot();
-            _contactPartner = other;
 
-            if (_contactRollsFall)
+            if (_contactRollsFall && RollOwnFall(other))
             {
-                // otherFell — упал ли второй от этой же пары. Круг только у того, кто сам устоял, и только если упал второй.
-                bool isFall = RollFall(other, out bool otherFell);
-                if (isFall)
-                {
-                    Stun(StunTime);
-                    StartAnimationClip((byte)StateAnimation.Fall);
-                    return;
-                }
-
-                if (otherFell && StartContactCircle())
-                    return;
+                Fall();
+                return;
             }
 
+            if ((other.PeekFall(this) || other.IsStunned) && StartContactCircle())
+                return;
+
+            ContinueAfterContact();
+        }
+
+        // Упавший бросает круг, удары и маршрут: лёжа он не бьёт и не доезжает манёвр. Встав, идёт на свою цель.
+        private void Fall()
+        {
+            _attackCharge = false;
+            _chaseToAttackRange = false;
+            ClearAttackSlot();
+            StopAttackClip();
+            HoldPosition();
+            _fallen = true;
+            Stun(StunTime);
+            StartAnimationClip((byte)StateAnimation.Fall);
+
+            if (!IsStunned)
+                GetUp();
+        }
+
+        // Подъезжает к месту для атаки и бьёт, без чарджа. Без цели возвращается на полосу, если шёл по ней.
+        private void GetUp()
+        {
+            if (!_fallen)
+                return;
+
+            _fallen = false;
             ContinueAfterContact();
         }
 
@@ -256,14 +309,6 @@ namespace Server.Core.Entity
             return dx * dx + dy * dy <= radius * radius;
         }
 
-        // Бросок этого юнита и исход второго по той же паре. Второй ещё не разобран — его бросок считается здесь и сохраняется ему.
-        private bool RollFall(UnitRuntime other, out bool otherFell)
-        {
-            bool isFall = RollOwnFall(other);
-            otherFell = other.PeekFall(this);
-            return isFall;
-        }
-
         private bool RollOwnFall(UnitRuntime partner)
         {
             if (_fallReady && ReferenceEquals(_fallPartner, partner))
@@ -273,15 +318,11 @@ namespace Server.Core.Entity
         }
 
         // true, если этот юнит падает от контакта с partner. Чужой контакт и отсутствие броска оставляют его на ногах.
+        // Ещё не разобранному юниту бросок считается здесь и сохраняется: его ResolveContact прочитает готовый исход.
         private bool PeekFall(UnitRuntime partner)
         {
             if (_fallReady && ReferenceEquals(_fallPartner, partner))
                 return _fell;
-
-            // Игнор закрывает новые контакты. Уже посчитанный исход читается веткой выше:
-            // свой ResolveContact включает его до того, как партнёр спросит результат.
-            if (_ignoreContacts)
-                return false;
 
             if (_contactRollsFall && ReferenceEquals(_contactWith, partner))
                 return StoreFall(partner);

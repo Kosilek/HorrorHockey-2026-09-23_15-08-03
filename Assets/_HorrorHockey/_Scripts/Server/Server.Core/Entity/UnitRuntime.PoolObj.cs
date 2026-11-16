@@ -22,6 +22,7 @@ namespace Server.Core.Entity
 
                 _baseRoute = dataUnit.Item3.BaseRoute;
                 _followBaseRoute = true;
+                _rejoinBaseRoute = false;
                 RouteControls = null;
 
                 var MaxSpeed =
@@ -82,16 +83,26 @@ namespace Server.Core.Entity
                 _sendCommand = dataUnit.Item4.SendCommand;
                 _navigationService = dataUnit.Item4.NavigationService;
                 _getUnitsByTarget = dataUnit.Item4.GetUnitsByTarget;
+                _fillNearbyUnits = dataUnit.Item4.FillNearbyUnits;
                 _targetChanged = dataUnit.Item4.TargetChanged;
+                _callDeath = dataUnit.Item4.CallDeath;
                 _attackSlotTarget = null;
+                _chargeTarget = null;
+                _meetWith = null;
                 _circleControls = null;
+                _orbitControls = null;
                 _circleComplete = null;
                 _stunCount = 0;
                 _stunTimer = 0f;
                 _attackCharge = false;
                 _chaseToAttackRange = false;
+                _oldTargetDead = false;
                 _contactWith = null;
                 _contactPartner = null;
+                _contactKeepsOrders = false;
+                _fallen = false;
+                _ignoreContacts = false;
+                _cooldownContacts = 0f;
             }
             else if (data is UnitRuntime unit && ReferenceEquals(unit, this))
             {

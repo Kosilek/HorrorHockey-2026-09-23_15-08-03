@@ -64,7 +64,7 @@ namespace Server.Core.Match
             _worldGrid = worldGrid;
             _entityProviderService = entityProviderService;
 
-            _targetSelector = new(_worldGrid, GetUnit);
+            _targetSelector = new(_worldGrid, GetUnit, GetAttackerCount);
 
             _units = new();
             _commands = new();

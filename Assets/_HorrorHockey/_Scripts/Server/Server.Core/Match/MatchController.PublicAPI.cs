@@ -54,7 +54,9 @@ namespace Server.Core.Match
                 TargetSelector = _targetSelector,
                 NavigationService = _navigationService,
                 GetUnitsByTarget = GetAllUnitTarget,
-                TargetChanged = OnUnitTargetChanged
+                FillNearbyUnits = FillNearbyUnits,
+                TargetChanged = OnUnitTargetChanged,
+                CallDeath = ResetAllTarget
             };
 
             UnitRuntime unit = slot.TObj;

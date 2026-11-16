@@ -39,8 +39,8 @@
           { "TypeCharater": "DetectionRadius", "BaseValue": 8.0 },
           { "TypeCharater": "AttackRadius", "BaseValue": 1.5 },
           { "TypeCharater": "AttackSpeed", "BaseValue": 1.0 },
-          { "TypeCharater": "Damage", "BaseValue": 10.0 },
-          { "TypeCharater": "Health", "BaseValue": 100.0 },
+          { "TypeCharater": "Damage", "BaseValue": 15.0 },
+          { "TypeCharater": "Health", "BaseValue": 50.0 },
           { "TypeCharater": "Defense", "BaseValue": 5.0 },
           { "TypeCharater": "MovementSpeed", "BaseValue": 10.0 }
         ]

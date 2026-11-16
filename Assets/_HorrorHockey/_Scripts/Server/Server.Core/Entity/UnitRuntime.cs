@@ -58,6 +58,8 @@ namespace Server.Core.Entity
         #region Fields Route
         private FMVector2[] _baseRoute;
         private bool _followBaseRoute;
+        // Сошёл с полосы: вернуться в ближайшую её точку, а не на старт. После спавна и в конце полосы маршрут идёт целиком.
+        private bool _rejoinBaseRoute;
 
         /// <summary>
         /// <para>{EN} Start of the current route. The client starts its curve from here.</para>
@@ -83,6 +85,15 @@ namespace Server.Core.Entity
         /// {RU} true, пока текущий маршрут — круговой. Любой другой маршрут его заменяет.
         /// </summary>
         public bool IsCircling => _circleControls != null && ReferenceEquals(_circleControls, RouteControls);
+
+        // Ближе этого к концу полосы юнит не останавливается, а кружит вокруг последней точки на этом радиусе.
+        private const float LaneEndOrbitRadius = 7f;
+
+        private FMVector2[] _orbitControls;
+        private bool _orbitClockwise;
+
+        // Кружит вокруг конца полосы. Это обычный проход по полосе: агрессия и контакты работают как на ней.
+        private bool IsOrbitingLaneEnd => _orbitControls != null && ReferenceEquals(_orbitControls, RouteControls);
         #endregion
 
         #region Fields Stun
@@ -118,7 +129,9 @@ namespace Server.Core.Entity
         private Action<string, object> _sendCommand;
         private INavigationService _navigationService;
         private Func<int, List<UnitRuntime>> _getUnitsByTarget;
+        private Action<Int2, List<UnitRuntime>> _fillNearbyUnits;
         private Action<UnitRuntime, UnitRuntime, UnitRuntime> _targetChanged;
+        private Action<int> _callDeath;
         #endregion
     }
 }

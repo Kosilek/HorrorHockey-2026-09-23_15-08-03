@@ -4,7 +4,6 @@ using Server.Core.Entity;
 using Server.Core.Enums;
 using Server.Core.Targets;
 using System;
-using static UnityEngine.GraphicsBuffer;
 
 namespace Server.Core.Module.Entity
 {
@@ -101,6 +100,16 @@ namespace Server.Core.Module.Entity
             // Неудачный поиск может вернуть юнита вне радиуса — это не цель.
             SetTarget(null);
             return false;
+        }
+
+        /// <summary>
+        /// <para>{EN} Takes this unit as the target without a search: Attack inside the attack radius, MoveTarget outside.</para>
+        /// {RU} Берёт этого юнита целью без поиска: Attack внутри радиуса атаки, MoveTarget снаружи.
+        /// </summary>
+        public void SetTargetUnit(UnitRuntime target, Vector2 positionUnit)
+        {
+            SetTarget(target);
+            SetStatus(IsInAttackRadius(positionUnit) ? StatusUnit.Attack : StatusUnit.MoveTarget);
         }
 
         public void CheckDistanceToTarget(Vector2 positionUnit)
